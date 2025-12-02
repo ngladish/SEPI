@@ -1,0 +1,1886 @@
+---
+title: "<center>SDVI Production Using the 2018-2022 5-Year ACS</center>"
+author: "<br><center>[Nicole Gladish, PhD](https://profiles.stanford.edu/nicole-gladish)</center>"
+date: "<center>`r format(Sys.time(), '%d %B, %Y')`</center>"
+output:
+  html_document:
+    includes:
+      after_body: "/Users/ngladish/Documents/General/HTML_Files/NG_footer.html"
+      in_header: "/Users/ngladish/Documents/General/HTML_Files/header.html"
+    toc: true
+    toc_depth: 2
+    number_sections: true
+    toc_float: 
+      collapsed: true
+      smooth_scroll: true
+    css: "/Users/ngladish/Documents/General/HTML_Files/bootstrap.css"
+    self_contained: true
+---
+<br><br>
+
+```{css, echo = FALSE}
+  /* General code block styling */
+  pre {
+    background-color: #2e2e2e;
+    color: #f5f5f5;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: "Courier New", monospace;
+  }
+  code {
+      background-color: #2e2e2e;
+    color: #f5f5f5;
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-family: "Courier New", monospace;
+}
+  .hljs{
+  display: block;
+  padding: 0.5em;
+  background: #2e2e2e;
+  color: #f5f5f5;
+  }
+
+  /* Strings */
+  .hljs-string {
+      color: #c2a3fd; 
+  }
+
+  /* Numbers */
+  .hljs-number, 
+  .hljs-literal,
+  .hljs-logical,
+  .hljs-built_in, 
+  .hljs-variable.constant,
+  .hljs-keyword, 
+  .hljs-variable.language, 
+  .hljs-title.function{
+      color: #8fff84; 
+  }
+
+  /* Comments */
+  .hljs-comment, .hljs-quote {
+      color: #ff7777; 
+  }
+
+  /* Symbols and punctuation (e.g., parentheses, brackets) */
+.hljs-punctuation, .hljs-operator {
+      color: #13cee0; 
+  }
+  
+  /* General card block styling */
+  
+div.card {
+    background-color: #71797E; /* Dark background color */
+    border-radius: 10px;
+    padding: 10px;
+    color: white; /* Set text color to white */
+    margin-bottom: 0;
+    margin-top: 10px; /* Add some space above paragraphs if needed */
+  }
+   /* Explicitly set all header text inside .card to white (in case bootstrap overrides it) */
+  div.card h1, div.card h2, div.card h3, div.card h4, div.card h5, div.card h6 {
+    color: white; /* Set header text color to white */
+  }
+```
+
+# Introduction
+***
+
+Comparing the social deprivation indices requires the production of a subset from the 5-year American Community Survey UC Census data while others are provided by their respective creators requiring downloading, uploading, and minor adjustments in R to make them amenable for comparisons. The indices which will be reproduced as best as methodologies published by the orginal creators allows include: Social Deprivation Index (SDI), Neighborhood Stress Score (NSS7), and the French Deprivation Index (FDep). Those which were available by their creators were the Social Vulnerability Index (SVI) and the Neighborhood Atlas ADI (referenced in Supp_File4_ReADI_Analysis_v2.Rmd). 
+
+<br>
+
+> Libraries
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code141">Show Code</button>
+  <div id="code141" class="collapse">
+
+```{r, eval = F}
+setwd("~/Desktop/SDVI/SDVI Comparison/Data Analysis")
+```
+
+```{r, results = F, message = F}
+library(tidyverse)
+library(censusapi)
+library(reshape2)
+library(plyr)
+library(openxlsx)
+library(readxl)
+library(tidycensus)
+library(dbplyr)
+library(dplyr)
+library(tidyr)
+library(scales)
+library(viridis)
+library(corrplot)
+library("irr")
+library(ggrepel)
+library(ggmap)
+library(DT)
+library(knitr)
+library(psych)
+options(tigris_use_cache = TRUE)
+library(tigris)
+library(spdep)
+library(stringi)
+library(pals)
+library(stats)
+```
+
+```{r}
+sessionInfo()
+```
+
+  </div>
+</div>
+  
+<br><br>
+
+## Retrieving 2018-2022 5-Year ACS
+***
+
+> Obtaining Census Key
+
+In order to obtain the census API data you are required to obtain a census key from [here](https://api.census.gov/data/key_signup.html).
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code339">Show Code</button>
+  <div id="code339" class="collapse">
+  
+```{r, eval = F}
+Sys.getenv("CENSUS_KEY") # to check that the API key is in the system
+states_removed <- c("60", "66", "69", "74", "78") # These are the state numbers which won't be included
+states <- setdiff(unique(fips_codes$state_code), states_removed)
+```
+  </div>
+</div>
+  
+<br><br>
+
+### Pulling Variables Required
+***
+
+To access the US census data via R using the [censusapi package](https://cran.r-project.org/web/packages/censusapi/censusapi.pdf) you need to obtain a [user specific key](https://api.census.gov/data/key_signup.html). Access to the data dictionaries can be found on the [US census site](https://api.census.gov/data/2022/acs/acs5/variables.html) but a more user friendly way to navigate the data can be found on [social explorer](https://www.socialexplorer.com/data/ACS2022_5yr/metadata/?ds=ACS22_5yr). Specific state and county FIPS codes to use in the code can be found on the [US census site](https://www.census.gov/geographies/reference-files/2022/demo/popest/2022-fips.html). 
+
+Here is the breakdown of how many of each area exist:
+
+<div class = "row">
+<div class = "col-md-4">
+|Area    |Starting |Removed |Remaining|
+|:-------|:--------|:-------|:--------|
+|CBG     |242,336  |2,164   |240,172  |
+|CT      |85,396   |857     |84,539   |
+|County  |3,222    |0       |3,222    |
+</div>
+
+<div class = "col-md-8">
+</div>
+</div>
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code168">Show Code</button>
+  <div id="code168" class="collapse">
+```{r, eval = F}
+Sys.getenv("CENSUS_KEY") # to check that the API key is in the system
+states_removed <- c("60", "66", "69", "74", "78") # These are the state numbers which won't be included
+states <- setdiff(unique(fips_codes$state_code), states_removed)
+
+SDVI_Variables <- c(
+      "B01003_001",
+      "B19013_001",
+      "C17002_005", "C17002_004", "C17002_003", "C17002_002", "C17002_001", "C17002_007","C17002_006",
+      "B15003_002", "B15003_003", "B15003_004", "B15003_005", "B15003_006", "B15003_007", "B15003_008", "B15003_009", "B15003_010", "B15003_011", "B15003_012", "B15003_013", "B15003_014", "B15003_015", "B15003_016", "B15003_001",      
+      "B23024_006", "B23024_008", "B23024_009", "B23024_013", "B23024_015", "B23024_016", "B23024_021", "B23024_023", "B23024_024", "B23024_028", "B23024_030", "B23024_031",
+      "B25003_003", "B25003_001",
+      "B25014_005", "B25014_006", "B25014_007", "B25014_011", "B25014_012", "B25014_013", "B25014_001",
+      "B11003_010", "B11003_016", "B11003_001",
+      "B25044_010", "B25044_003", "B25044_001",
+      "B17017_002", "B17017_001",
+      "B19058_002", "B19058_001",
+      "B23025_005", "B23025_003",
+      "B15003_017", "B15003_018", "B15003_019", "B15003_020", "B15003_021", "B15003_022", "B15003_023", "B15003_024", "B15003_025",
+      "C24010_019", "C24010_030", "C24010_034", "C24010_055", "C24010_066", "C24010_070","C24010_001")
+      
+SDVI_2022_CBG_Raw_NG <- do.call(rbind, lapply(1:length(states), function(x){
+   SDVI_2022_CBG_Raw_NG <- get_acs(
+    year = 2022,
+    geography = "block group",
+    state = states[x],
+    key = Sys.getenv("CENSUS_KEY"),
+    variables = SDVI_Variables)
+}))
+
+SDVI_2022_CBG_Raw_NG <- reshape2::dcast(SDVI_2022_CBG_Raw_NG, GEOID + NAME ~ variable, value.var=c("estimate"))
+SDVI_2022_CBG_Raw_NG <- SDVI_2022_CBG_Raw_NG %>% separate(NAME, c("Block_Group", "Tract", "County", "State"), sep = ";") #242,336
+SDVI_2022_CBG_Raw_NG <- SDVI_2022_CBG_Raw_NG[!SDVI_2022_CBG_Raw_NG$B01003_001 == 0,] # 2,239 CBGs removed due to having a population = 0 240,172 - 2,164 removed.
+# These variables aren't present at the CBG level.
+save(SDVI_2022_CBG_Raw_NG, file = "SDVI_2022_CBG_Raw_NG.RData")
+
+# Census tract level
+SDVI_2022_CT_Raw_NG <- do.call(rbind, lapply(1:length(states), function(x){
+   SDVI_2022_CT_Raw_NG <- get_acs(
+    year = 2022,
+    geography = "tract",
+    state = states[x],
+    key = Sys.getenv("CENSUS_KEY"),
+    variables = SDVI_Variables)
+}))
+
+SDVI_2022_CT_Raw_NG <- reshape2::dcast(SDVI_2022_CT_Raw_NG, GEOID + NAME ~ variable, value.var=c("estimate"))
+SDVI_2022_CT_Raw_NG <- SDVI_2022_CT_Raw_NG %>% separate(NAME, c("Tract", "County", "State"), sep = ";") #85,396
+SDVI_2022_CT_Raw_NG <- SDVI_2022_CT_Raw_NG[!SDVI_2022_CT_Raw_NG$B01003_001 == 0,] # 857 CTs removed due to having a population = 0
+save(SDVI_2022_CT_Raw_NG, file = "SDVI_2022_CT_Raw_NG.RData")
+
+# County level
+SDVI_2022_C_Raw_NG <- do.call(rbind, lapply(1:length(states), function(x){
+   SDVI_2022_C_Raw_NG <- get_acs(
+    year = 2022,
+    geography = "county",
+    state = states[x],
+    key = Sys.getenv("CENSUS_KEY"),
+    variables = SDVI_Variables)
+}))
+
+SDVI_2022_C_Raw_NG <- reshape2::dcast(SDVI_2022_C_Raw_NG, GEOID + NAME ~ variable, value.var=c("estimate"))
+SDVI_2022_C_Raw_NG <- SDVI_2022_C_Raw_NG %>% separate(NAME, c("County", "State"), sep = ",") #3222
+SDVI_2022_C_Raw_NG <- SDVI_2022_C_Raw_NG[!SDVI_2022_C_Raw_NG$B01003_001 == 0,] # 0 counties were removed due to having a population = 0
+save(SDVI_2022_C_Raw_NG, file = "SDVI_2022_C_Raw_NG.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+## Pulling Geography Measures
+***
+
+These values are required for imputation.
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code203">Show Code</button>
+  <div id="code203" class="collapse">
+
+```{r, eval = F}
+CBG_Geo <- do.call(rbind, lapply(1:length(states), function(x){
+   SDVI_2022_CBG_Raw_NG <- get_acs(
+    year = 2022,
+    geography = "block group",
+    geometry = TRUE,
+    state = states[x],
+    key = Sys.getenv("CENSUS_KEY"),
+    variables = "B01003_001E")
+}))
+CBG_Geo <- CBG_Geo[!CBG_Geo$estimate == 0,]
+SDVI_CBG_Geometry <- CBG_Geo[, c("GEOID", "geometry")]
+save(SDVI_CBG_Geometry, file = "SDVI_CBG_Geometry.RData")
+
+CT_Geo <- do.call(rbind, lapply(1:length(states), function(x){
+   SDVI_2022_CT_Raw_NG <- get_acs(
+    year = 2022,
+    geography = "tract",
+    geometry = TRUE,
+    state = states[x],
+    key = Sys.getenv("CENSUS_KEY"),
+    variables = "B01003_001E")
+}))
+CT_Geo <- CT_Geo[!CT_Geo$estimate == 0,]
+SDVI_CT_Geometry <- CT_Geo[, c("GEOID", "geometry")]
+save(SDVI_CT_Geometry, file = "SDVI_CT_Geometry.RData")
+
+C_Geo <- do.call(rbind, lapply(1:length(states), function(x){
+   SDVI_2022_C_Raw_NG <- get_acs(
+    year = 2022,
+    geography = "county",
+    geometry = TRUE,
+    state = states[x],
+    key = Sys.getenv("CENSUS_KEY"),
+    variables = "B01003_001E")
+}))
+C_Geo <- C_Geo[!C_Geo$estimate == 0,]
+SDVI_C_Geometry <- C_Geo[, c("GEOID", "geometry")]
+save(SDVI_C_Geometry, file = "SDVI_C_Geometry.RData")
+```
+  </div>
+</div>
+  
+<br><br>
+
+# SDVI Preparation
+***
+
+<br>
+
+## Missing Values
+***
+
+Below is a summary of the amount of missing values among variables with missing information:
+
+<div class = "row">
+<div class = "col-md-6">
+|Variable       |CBG N (/%)   |CT N (/%)   |C N (/%)    |
+|:--------------|:------------|:-----------|:-----------|
+|B19013_001     |15042 (6)    |724 (1)     |1 (<1)      |
+</div>
+
+<div class = "col-md-6">
+</div>
+</div>
+
+<br>
+
+Among the missing data there was only 1 county which had NAs for this variables:
+
+<div style="margin:16px 0">
+ <center><button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code569"><h4 class="text-white">County NAs</h4></button></center>
+  <div id="code569" class="collapse">
+|County, ST          |Population|B19013_001|B25064_001|B25077_001|B25088_002|
+|:------------------|:---------|:---------|:---------|:---------|:---------|
+|Loving County, TX  |96        |<strong><strong>NA</strong></strong>|<strong><strong>NA</strong></strong>|\$218,800 |<strong><strong>NA</strong></strong>|
+  </div>
+</div>
+
+<br>
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code253">Show Code</button>
+  <div id="code253" class="collapse">
+```{r, eval = F}
+colSums(is.na(SDVI_2022_CBG_Raw_NG))
+15042/nrow(SDVI_2022_CBG_Raw_NG)
+colSums(is.na(SDVI_2022_CT_Raw_NG))
+colSums(is.na(SDVI_2022_C_Raw_NG))
+
+missing <- SDVI_2022_C_Raw_NG[is.na(SDVI_2022_C_Raw_NG$B19013_001),]
+```
+  </div>
+</div>
+  
+<br><br>
+
+### Imputation
+***
+
+We will perform a nearest neighbor imputation using type Queen contiguity. The median values of all border touching geographies will be used to replace NAs for the respective geographical levels within state. Imputation will happen iteratively until no further CBGs can be imputed. Among those which can't be imputed in this way we will then impute with the average of the upper level geography if appropriate.
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code337">Show Code</button>
+  <div id="code337" class="collapse">
+  
+```{r, eval = F}
+impute.fun <- function(data, var, shape) {
+  variable <- data[, c("GEOID", var)]
+  colnames(variable) <- c("GEOID", "estimate")
+  df <- shape %>% left_join(variable, by = "GEOID")
+  df <- df[!is.na(st_dimension(df)),]
+  df$State <- substr(df$GEOID, 1, 2)
+  df$raw.estimate <- df$estimate
+  message(paste0(sum(is.na(df$estimate)), " missing before imputation."))
+
+  # set check values for iterative while loop:
+  missing.pre <- 1
+  missing.post <- 0
+
+  # while loop for iterations!
+  while(missing.pre > missing.post) { 
+    missing.pre <- sum(is.na(df$estimate))
+    imputed <- bind_rows(lapply(unique(df$State), function(x){
+      df2 <- df[df$State == x,]
+      df2$index <- 1:nrow(df2)
+      df2$nb <- spdep::poly2nb(df2, queen = TRUE)
+      df2$geometry <- NULL
+      df2$imputed <- unlist(lapply(df2$nb, function(z){
+        median(df2$estimate[z], na.rm = T)}))
+      df2 <- df2[, c("GEOID", "estimate", "State", "imputed")]
+      return(df2)
+      }))
+    df$imputed <- NULL
+    df <- left_join(df, imputed, by = c("GEOID", "estimate", "State"))
+    df$estimate <- ifelse(is.na(df$estimate), df$imputed, df$estimate)
+    missing.post <- sum(is.na(df$estimate))
+  }
+  message(paste0(sum(is.na(df$estimate)), " missing after imputing."))
+  return(df)
+}
+```
+  </div>
+</div>
+  
+<br><br>
+
+> CBG
+
+Imputation was successful in that only the NAs were imputed and replaced in the overall dataset though there are some NAs remaining which will be investigated below. Out of interest the following table will include how correlated the actual measure is to a fully imputed measure.
+
+<div class = "row">
+<div class = "col-md-6">
+|Variable       |$r$          |*p*value        |NAs Remaining   |
+|:--------------|:------------|:---------------|:---------------|
+|B19013_001     |0.757        |$<2.2x10^{-16}$ |14              |
+</div>
+
+<div class = "col-md-6">
+</div>
+</div>
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code395">Show Code</button>
+  <div id="code395" class="collapse">
+```{r, eval = F}
+load("SDVI_CBG_Geometry.RData")
+load("SDVI_2022_CBG_Raw_NG.RData")
+
+B19013_Impute_CBG <- impute.fun(data = SDVI_2022_CBG_Raw_NG, var = "B19013_001", shape = SDVI_CBG_Geometry)
+cor.test(B19013_Impute_CBG$estimate, B19013_Impute_CBG$raw.estimate) # 1 
+cor.test(B19013_Impute_CBG$imputed, B19013_Impute_CBG$raw.estimate) # 0.76 p < 2.2e-16
+B19013_Impute_CBG$geometry <- NULL
+B19013_Impute_CBG <- B19013_Impute_CBG[, c("GEOID", "estimate")]
+colnames(B19013_Impute_CBG) <- c("GEOID", "B19013_001")
+
+CBG_Imputed <- B19013_Impute_CBG
+save(CBG_Imputed, file = "CBG_Imputed.RData")
+
+sum(is.na(CBG_Imputed$B19013_001)) #14
+
+SDVI_2022_CBG_Imp <- SDVI_2022_CBG_Raw_NG[, !colnames(SDVI_2022_CBG_Raw_NG) %in% c("B19013_001")]
+SDVI_2022_CBG_Imp <- plyr::join(SDVI_2022_CBG_Imp, CBG_Imputed, by = "GEOID")
+save(SDVI_2022_CBG_Imp, file = "SDVI_2022_CBG_Imp.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> CT
+
+<div class = "row">
+<div class = "col-md-6">
+|Variable       |$r$          |*p*value        |NAs Remaining   |
+|:--------------|:------------|:---------------|:---------------|
+|B19013_001     |0.802        |$<2.2x10^{-16}$ |4               |
+
+</div>
+
+<div class = "col-md-6">
+</div>
+</div>
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code428">Show Code</button>
+  <div id="code428" class="collapse">
+```{r, eval = F}
+load("SDVI_CT_Geometry.RData")
+load("SDVI_2022_CT_Raw_NG.RData")
+
+B19013_Impute_CT <- impute.fun(data = SDVI_2022_CT_Raw_NG, var = "B19013_001", shape = SDVI_CT_Geometry)
+cor.test(B19013_Impute_CT$estimate, B19013_Impute_CT$raw.estimate) # 1
+cor.test(B19013_Impute_CT$imputed, B19013_Impute_CT$raw.estimate) # 0.80 p < 2.2e-16
+B19013_Impute_CT$geometry <- NULL
+B19013_Impute_CT <- B19013_Impute_CT[, c("GEOID", "estimate")]
+colnames(B19013_Impute_CT) <- c("GEOID", "B19013_001")
+
+CT_Imputed <- B19013_Impute_CT
+save(CT_Imputed, file = "CT_Imputed.RData")
+
+sum(is.na(CT_Imputed$B19013_001)) #4
+
+SDVI_2022_CT_Imp <- SDVI_2022_CT_Raw_NG[, !colnames(SDVI_2022_CT_Raw_NG) %in% c("B19013_001")]
+SDVI_2022_CT_Imp <- plyr::join(SDVI_2022_CT_Imp, CT_Imputed, by = "GEOID")
+save(SDVI_2022_CT_Imp, file = "SDVI_2022_CT_Imp.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> C
+
+Only one county did not have a geometry value which was DC. 
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code500">Show Code</button>
+  <div id="code550" class="collapse">
+```{r, eval = F}
+load("SDVI_C_Geometry.RData")
+load("SDVI_2022_C_Raw_NG.RData")
+
+## For county you need to remove state 11 as it has only one county
+table(SDVI_2022_C_Raw_NG$State)
+data = SDVI_2022_C_Raw_NG[!SDVI_2022_C_Raw_NG$State == " District of Columbia",]
+geoid_rm <- SDVI_2022_C_Raw_NG[SDVI_2022_C_Raw_NG$State == " District of Columbia", "GEOID"]
+shape = SDVI_C_Geometry[!SDVI_C_Geometry$GEOID %in% geoid_rm,]
+
+B19013_Impute_C <- impute.fun(data = data, var = "B19013_001", shape = shape)
+cor.test(B19013_Impute_C$estimate, B19013_Impute_C$raw.estimate) # should always be 1 as nas are removed and to ensure nothing changed to the non-missing data.
+cor.test(B19013_Impute_C$imputed, B19013_Impute_C$raw.estimate) # 0.78 p < 2.2e-16
+B19013_Impute_C$geometry <- NULL
+B19013_Impute_C <- B19013_Impute_C[, c("GEOID", "estimate")]
+colnames(B19013_Impute_C) <- c("GEOID", "B19013_001")
+
+C_Imputed <- B19013_Impute_C
+save(C_Imputed, file = "C_Imputed.RData")
+
+sum(is.na(C_Imputed$B19013_001)) #0
+
+SDVI_2022_C_Imp <- SDVI_2022_C_Raw_NG[, !colnames(SDVI_2022_C_Raw_NG) %in% c("B19013_001")]
+SDVI_2022_C_Imp <- plyr::join(SDVI_2022_C_Imp, C_Imputed, by = "GEOID")
+
+# replacing District of Columbia data removed in previous line.
+identical(SDVI_2022_C_Raw_NG$GEOID, SDVI_2022_C_Imp$GEOID)
+SDVI_2022_C_Imp$B19013_001 <- ifelse(is.na(SDVI_2022_C_Imp$B19013_001), SDVI_2022_C_Raw_NG$B19013_001, SDVI_2022_C_Imp$B19013_001)
+save(SDVI_2022_C_Imp, file = "SDVI_2022_C_Imp.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+### Missing After Imputation
+***
+
+<br>
+
+The main reason why there would still be missing information after imputation is due to the imputation method used which required measures due to bordering geographies which would not impute areas which have no bordering areas such as islands. We will investigate what areas are remaining and if it makes sense to impute for these regions.
+
+> Census Tracts
+
+Of the missing data remaining after imputation there are 9 total census tracts, 8 of which are NAs for all measures. Information based on [Census Reporter](https://censusreporter.org/profiles/):
+
+<div style="margin:16px 0">
+ <center><button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code855"><h4 class="text-white">CT NAs</h4></button></center>
+  <div id="code855" class="collapse">
+
+|GEOID      |CT   |Location                  |Population|CT Information                         |
+|:----------|:----|:-------------------------|:---------|:--------------------------------------|
+|06083980100|9801 |Santa Barbara County, CA  |10        |Channel Islands National Park.         |
+|06111980000|9800 |Ventura County, CA        |107       |Naval Facility San Nicolas Island.     |
+|12087980100|9801 |Monroe County, FL         |2         |Dry Tortugas is a National Park.       |
+|26083980100|9801 |Keweenaw County, MI       |3         |Isle Royale Island is a National Park. |
+  </div>
+</div>
+
+As all of the census tracts which have remaining NAs, they are either national parks whose population consist of rangers or a naval base these CTs will be removed.
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code639">Show Code</button>
+  <div id="code639" class="collapse">
+```{r, eval = F}
+load("SDVI_2022_CT_Imp.RData")
+load("SDVI_CT_Geometry.RData")
+B19013_001_NAs <- SDVI_2022_CT_Imp[is.na(SDVI_2022_CT_Imp$B19013_001), c("GEOID", "Tract", "County", "State")] # 4
+CT_Missing <- B19013_001_NAs
+CT_rm <- c("06083980100", "06111980000", "12087980100", "26083980100")
+SDVI_2022_CT_Imp <- SDVI_2022_CT_Imp[!SDVI_2022_CT_Imp$GEOID %in% CT_rm, ] # 84535 remaining - 4 removed
+save(SDVI_2022_CT_Imp, file = "SDVI_2022_CT_Imp.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> Census Block Groups
+
+Observing the specific census block groups which remain NAs after imputation summarized in the table below: 
+
+
+<div style="margin:16px 0">
+ <center><button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code855"><h4 class="text-white">CBG NAs></h4></button></center>
+  <div id="code855" class="collapse">
+|GEOID       |CBG.CT   |Location                  |Population|CT Information                        |Removed|
+|:-----------|:--------|:-------------------------|:---------|:-------------------------------------|:------|
+|060375991001|1.5991   |Los Angeles County, CA    |201       |San Clemente Islands                  |       |
+|060839801001|1.9801   |Santa Barbara County, CA  |10        |Channel Islands National Park         |<strong><strong>X</strong></strong>|
+|061119800001|1.9800   |Ventura County, CA        |107       |Naval Facility San Nicolas Island     |<strong><strong>X</strong></strong>|
+|120879801001|1.9801   |Monroe County, FL         |2         |Dry Tortugas is a National Park       |<strong><strong>X</strong></strong>|
+|230159756005|5.9756   |Lincoln County, ME        |119       |Monhegan Island                       |       |
+|260839801001|1.9801   |Keweenaw County, MI       |3         |Isle Royale Island is a National Park |<strong><strong>X</strong></strong>|
+|360050001001|1.1      |Bronx County, NY          |4,446     |Rikers Island Prison                  |<strong><strong>X</strong></strong>|
+|360610240002|2.240    |New York County, NY       |2,278     |Manhattan Psychiatric Center          |<strong><strong>X</strong></strong>|
+|360610240003|3.240    |New York County, NY       |38        |Waste Facility Plant                  |       |
+|440050401052|2.401.05 |Newport County, RI        |98        |Prudance Park and Homestead on Island |       |
+|510010906001|1.906    |Accomack County, VA       |345       |Tangier Island                        |       |
+|530350927043|3.927.04 |Kitsap County, WA         |14        |Blake Island Marine State Park        |<strong><strong>X</strong></strong>|
+|530530726035|5.726.03 |Pierce County, WA         |371       |McNeil Island                         |       |
+|720531501062|2.1501.06|Fajardo Municipio, PR     |38        |Palomino Island                       |       |
+  </div>
+</div>
+
+Of the CBGs which remain missing after imputation it is clear that the vast majority of them were not imputed due to simply not directly bordering any other CBGs. These will be given the values attributed to the CT they are a part of for imputation. There are a few which will be removed as indicated in the removed column above based on if they represent national parks containing small population of rangers and areas consisting fully of group quarters.
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code666">Show Code</button>
+  <div id="code666" class="collapse">
+```{r, eval = F}
+load("SDVI_2022_CBG_Imp.RData")
+load("SDVI_2022_CT_Imp.RData")
+B19013_001_NAs <- SDVI_2022_CBG_Imp[is.na(SDVI_2022_CBG_Imp$B19013_001), c("GEOID", "Tract", "County", "State")] # 14
+CBG_Missing <- unique(B19013_001_NAs)
+CBG_rm <- c("060839801001", "061119800001", "120879801001", "260839801001", "360050001001", "360610240002", "530350927043")
+SDVI_2022_CBG_Imp <- SDVI_2022_CBG_Imp[!SDVI_2022_CBG_Imp$GEOID %in% CBG_rm, ] # 240165 remaining - 7 removed
+```
+  </div>
+</div>
+
+<br><br>
+
+### Imputing Remaining CBGs
+***
+
+The remaining CBGs will be imputed with the CT measure they are located in resulting in the final results:
+
+<div class = "row">
+<div class = "col-md-4">
+|Area   |NAs |Amount  |
+|:------|:---|:-------|
+|CBG    |0   |240,165 |
+|CT     |0   |84,535  |
+|C      |0   |3,222   |
+
+</div>
+
+<div class = "col-md-8">
+</div>
+</div>
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code732">Show Code</button>
+  <div id="code732" class="collapse">
+```{r, eval = F}
+impute_CBG_geo <- CBG_Missing[!CBG_Missing$GEOID %in% CBG_rm, "GEOID"]
+impute_CT_geo <- sapply(length(impute_CBG_geo), function(x){
+  substring(impute_CBG_geo, 1, 11)
+})
+impute_CT_geo <- impute_CT_geo[,1]
+
+impute_data <- SDVI_2022_CT_Imp[SDVI_2022_CT_Imp$GEOID %in% impute_CT_geo, c("GEOID", "B19013_001")]
+SDVI_2022_CBG_Imp$GEOID_CT <- substring(SDVI_2022_CBG_Imp$GEOID, 1, 11)
+SDVI_2022_CBG_Imp$B19013_001_T <- SDVI_2022_CBG_Imp$B19013_001
+
+# B19013_001
+CBG_Imp <- as.data.frame(sapply(1:nrow(impute_data), function(x){
+  ifelse(SDVI_2022_CBG_Imp$GEOID_CT == impute_data[x, "GEOID"] & is.na(SDVI_2022_CBG_Imp[,"B19013_001_T"]), impute_data[x,"B19013_001"], SDVI_2022_CBG_Imp$B19013_001_T)
+}))
+SDVI_2022_CBG_Imp$B19013_001 <- coalesce(CBG_Imp[,1],CBG_Imp[,2],CBG_Imp[,3],CBG_Imp[,4],CBG_Imp[,5],CBG_Imp[,6],CBG_Imp[,7])
+cor.test(SDVI_2022_CBG_Imp$B19013_001_T, SDVI_2022_CBG_Imp$B19013_001)
+sum(is.na(SDVI_2022_CBG_Imp$B19013_001_T)) # 11
+sum(is.na(SDVI_2022_CBG_Imp$B19013_001)) # 3
+
+SDVI_2022_CBG_Imp$GEOID_CT <- NULL
+SDVI_2022_CBG_Imp$B19013_001_T <- NULL
+save(SDVI_2022_CBG_Imp, file = "SDVI_2022_CBG_Imp.RData")
+
+sum(is.na(SDVI_2022_CBG_Imp))
+sum(is.na(SDVI_2022_CT_Imp))
+sum(is.na(SDVI_2022_C_Imp))
+```
+  </div>
+</div>
+
+<br><br>
+
+# SVI Production
+***
+
+<br>
+
+## Overview {.tabset}
+***
+
+<br>
+
+The SVI is an index which measures how vulnerable a community is to a natural disaster. ATSDR’s Geospatial Research, Analysis, & Services Program (GRASP) created the Centers for Disease Control and Prevention and Agency for Toxic Substances and Disease Registry Social Vulnerability Index (hereafter, CDC/ATSDR SVI or SVI) to help public health officials and emergency response planners identify and map the communities that will most likely need support before, during, and after a hazardous event at each census tract. The degree to which a community exhibits certain social conditions, including high poverty, low percentage of vehicle access, or crowded households, among others, may affect that community’s ability to prevent human suffering and financial loss in the event of a disaster. These factors describe a community’s social vulnerability. SVI ranks
+the tracts on 16 social factors, such as unemployment, racial and ethnic minority status, and disability status. Then, SVI further groups the factors into four related themes. Thus, each tract receives a ranking for each Census variable and for each of the four themes as well as an overall ranking. 
+
+SVI data can be downloaded from their [website](https://www.atsdr.cdc.gov/place-health/php/svi/svi-data-documentation-download.html) at the census tract and county levels for years [2000](https://www.atsdr.cdc.gov/place-health/media/pdfs/2024/08/SVI2000Documentation-H.pdf), [2010](https://www.atsdr.cdc.gov/place-health/media/pdfs/2024/08/SVI-2010-Documentation-H.pdf), [2014](https://www.atsdr.cdc.gov/place-health/media/pdfs/2024/08/SVI2014Documentation_01192022_1.pdf), [2016](https://www.atsdr.cdc.gov/place-health/media/pdfs/2024/08/SVI2016Documentation_01192022.pdf), [2018](https://www.atsdr.cdc.gov/place-health/media/pdfs/2024/08/SVI2018Documentation_01192022_1.pdf), [2022](https://www.atsdr.cdc.gov/place-health/media/pdfs/2024/08/SVI2022Documentation_08.05.22.pdf), and [2022](https://www.atsdr.cdc.gov/place-health/media/pdfs/2024/10/SVI2022Documentation.pdf). It is exported as a rank from 0 to 1 and the SVI can be exported based on nationwide ranking or statewide ranking as well. There are four themes and each have a set of previously defined variables required. Percentile ranking values range from 0 to 1, with higher values indicating greater vulnerability.
+
+> SVI Over Time
+
+<div style="float: right; width: 50%; margin-left: 15px;">
+  <img src="/Users/ngladish/Desktop/SDVI/SDVI Comparison/Images/SVI_Timeline-Graphic_V7.png" alt="Graph" style="width: 130%;">
+</div>
+
+Notes to remember when comparing SVI over time: 
+
+- Percentile scores included in each database were calculated by ranking census tracts relative to other census tracts in the same year. Therefore, percentile scores of different tracts in different years are not comparable.
+
+- Changes to the CDC/ATSDR SVI were made over time because data from the U.S. Census Bureau changed or because updates were needed to keep up with the latest research on the topic.
+
+- The U.S. Census Bureau redraws many census tract boundaries in each decennial year, meaning that census tracts included in the 2000 CDC/ATSDR SVI database are not equivalent to the census tracts included in the 2010, 2014, 2016, and 2018 CDC/ATSDR SVI databases (2022 and 2022 CDC/ATSDR SVI databases also contain different tracts). Even in cases where the census tract does not undergo a name change, modifications to the census tract geographic boundary may impact comparability over time.
+
+Calculations have changed over time as demonstrated by the figure to the right: 
+
+> Analysis Notes
+
+- Puerto Rico is not included in the US-wide ranking.
+
+- Tracts with an estimated population of zero were not included in the ranking process ($n = 857$ for the US, $n = 798$ excluding Puerto Rico). Of these, 520 tracts (including those of Puerto Rico) were re-added to the SVI databases after the ranking procedure. 337 tracts did not have matching geometry in the 2022 cartographic boundary file and were excluded. 
+
+- A value of $-999$ in any field either means the value was unavailable from the original census data or a derived value could not be calculate because of unavailable Census data. Any cells with a value of $-999$ were not used for further calculations. For example, total flags do not include fields with a $-999$ value.
+
+- The variable “FIPS” was used for geographic identification. Please note that a state FIPS code is two digits, a county FIPS code is three digits, and a census tract is 6 digits long. To identify a unique county, you must include the state FIPS along with the county FIPS (ex. 13089 is the state (13) + the county (089)). To identify a unique census tract, you must include the state and county FIPS along with the census tract (ex. 13089022404 is the state (13) + the county (089) + the census tract (022404)).
+
+- The order of overall SVI rankings and SVI theme rankings of census tracts may differ between the U.S. and state SVI databases.
+Overall and theme rankings are based on cumulative values that are relative to the number of census tracts being compared. Thus, differences between the
+order of rankings in the U.S. database and that of state databases may arise from the accumulation of differences in summing the percentile ranks for the individual SVI variables. 
+
+<br><br>
+
+### Theme 1
+
+<br>
+<h4>SOCIOECONOMIC</h4>
+<br>
+
+| Data Source | 2010 | 2014 | 2016 | 2018 | 2022 | 2022 |
+|:------------------------|:----|:----|:----|:----|:----|:----|
+|Individuals below poverty level|X|X|X|X|-|-|
+|Civilian unemployment 61+ years|X|X|X|X|X|X|
+|Per capita income|X|X|X|X|-|-|
+|No high school diploma 25+ years|X|X|X|X|-|-|
+|Below 150% of poverty|-|-|-|-|X|X|
+|Housing cost burden|-|-|-|-|X|X|
+|No health insurance|-|-|-|-|X|X|
+<br>
+
+- Below poverty: Percent Individuals below poverty = "under 0.5" + "0.5 to 0.74" + "0.75 to 0.99". Percent of persons below federally defined poverty line, a threshold that varies by the size and age composition of the household. Denominator is total population where poverty status is checked. Replaced with below 150% poverty for 2022 and 2022 measures.
+
+- Unemployed:Percent civilian unemployed. Based on total population 16+. Civilian persons unemployed divided by total civilian population. Unemployed persons actively seeking work.
+
+- Per Capita Income: The mean income computed for every person in the census tract. Replaced with housing burden costs for 2022 and 2022 measures.
+
+- No high school diploma: Percent of persons 25 years of age and older with less than a 12th grade education (including individuals with 12 grades but no diploma).
+
+- Below 150% of poverty: Only in 2022 and 2022 measures.
+
+- Housing cost burden: households spending >=30% of annual income on housing. Only in 2022 and 2022 measures.
+
+- No health insurance: Only in 2022 and 2022 measures.
+<br><br>
+
+### Theme 2 
+
+<br>
+<h4>HOOUSEHOLD COMPOSITION/DISABILITY$^{**}$</h4>
+<br>
+
+| Data Source | 2010 | 2014 | 2016 | 2018 | 2022 | 2022 |
+|:------------------------|:----|:----|:----|:----|:----|:----|
+|Persons 65+ years|X$^*$|X|X|X|X|X|
+|Persons 17 years and younger|X$^*$|X|X|X|X|X|
+|Persons 5+ years with a disability|-|X|X|X|X|X|
+|Single-parent households with children under 18 years|X$^*$|X|X|X|X|X|
+|Persons 5+ years who speak English less than well|-|-|-|-|X|X|
+<br>
+
+$^*$Data are derived from the decennial census 100% count data (SF1)
+
+$^{**}$Theme is titled "Household Characteristics" in 2022 and 2022
+  
+- Aged 65 or older: Percent persons 65 years of age or older
+
+- Aged 17 or younger: Percent persons 17 years of age or younger
+
+- Persons 5+ years with a disability: Percent persons more than 5 years old with a disability. Percent of civilian population not in an institution who are 5 years of age and older with a disability
+
+- Single-parent Households: Percent male or female householder, no spouse present, with children under 18.
+
+- Persons 5+ years who speak English less than well: Only present in 2022 and 2022.
+<br><br>
+
+### Theme 3 
+
+<br>
+<h4>MINORITY STATUS & LANGUAGE$^{***}$</h4>
+<br>
+
+| Data Source | 2010 | 2014 | 2016 | 2018 | 2022 | 2022 |
+|:------------------------|:----|:----|:----|:----|:----|:----|
+|Persons who are racial and/or ethnic minorities|X$^*$|X|X|X|X|X|
+|Persons 5+ years who speak English less than well|X$^*$|X|X|X|-|-|
+<br>
+
+$^*$Data are derived from the decennial census 100% count data (SF1) 
+
+$^{***}$Theme is titled: "Racial & Ethnic Minority Status" in 2022 and 2022
+
+- Persons who are racial and/or ethnic minorities: Total population minus non-Hispanic white: Percent minority = total of "black or African American alone" + "American Indian and Alaska Native alone" + "Asian alone" + "Native Hawaiian and other Pacific Islander alone" + "some other race alone" + "two or more races" + "Hispanic or Latino - white alone"
+
+- Aged 5 or older who speaks English "less than well": For all age groups and all languages = the total of persons who speak English "not well" or "not at all". Not present in 2022 and 2022 data.
+
+<br><br>
+
+### Theme 4 
+
+<br>
+<h4>HOUSING TYPE & TRANSPORTATION</h4>
+<br>
+
+| Data Source | 2010 | 2014 | 2016 | 2018 | 2022 | 2022 |
+|:------------------------|:----|:----|:----|:----|:----|:----|
+|Housing with 10+ units|X|X|X|X|X|X|
+|Mobile homes|X|X|X|X|X|X|
+|Households with more people than rooms|X|X|X|X|X|X|
+|Households with no vehicle access|X|X|X|X|X|X|
+|Persons who are in institutional and non-institutional group homes|X$^*$|X|X|X|X|X|
+<br>
+
+$^*$Data are derived from the decennial census 100% count data (SF1) 
+
+- Multi-unit structures: Percent multi-unit structure = percent housing units with 10 or more units in structure
+
+- Mobile homes: Percent housing units that are mobile homes
+
+- Crowding: At household level, more people than rooms. Percent total occupied housing units with more than one person per room
+
+- No vehicle: Percent households with no vehicle
+
+- Group quarters: Percent of persons who are in institutionalized group quarters (eg correctional institutions, nursing homes) and non-institutionalized group quarters (eg college dormitories, military quarters)
+
+<br><br>
+
+## 2022 SVI Method {.tabset}
+
+<br><br>
+
+### Step 1
+
+<br>
+
+<h4>E Variables</h4> 
+
+Obtain estimates of the CDC/ATSDR SVI variables from the Census Bureau.
+
++----------------------------------+---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|Theme                             |Variable |Census Table   |Formula                                                                                                      |
++==================================+=========+===============+=============================================================================================================+
+|Theme 1: Socioeconomic            |E_POV150 |S1701          |S1701_C01_040E                                                                                               |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_UNEMP  |DP03           |DP03_0005E                                                                                                   |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_HBURD  |S2503          |S2503_C01_028E + S2503_C01_032E + S2503_C01_036E + S2503_C01_040E                                            |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_NOHSDP |B06009         |B06009_002E                                                                                                  |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_UNINSUR|S2701          |S2701_C04_001E                                                                                               |
++----------------------------------+---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|Theme 2: Household Characteristics|E_AGE65  |S0101          |S0101_C01_030E                                                                                               |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_AGE17  |DP05           |DP05_0019E                                                                                                   |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_DISABL |DP02           |DP02_0072E                                                                                                   |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_SNGPNT |DP02           |DP02_0007E + DP02_0011E                                                                                      |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_LIMENG |B16005         |007E + 008E + 012E + 013E + 017E + 018E + 022E + 023E + 029E + 030E + 034E + 035E + 039E + 040E + 044E + 045E|
++----------------------------------+---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|Theme 3: Minority Status          |E_MINRTY |DP05           |DP05_0001E - DP05_0079E                                                                                      |
++----------------------------------+---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|Theme 4:Housing/Transport         |E_MUNIT  |DP04           |DP04_0012E + DP04_0013E                                                                                      |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_MOBILE |DP04           |DP04_0014E                                                                                                   |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_CROWD  |DP04           |DP04_0078E + DP04_0079E                                                                                      |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_NOVEH  |DP04           |DP04_0058E                                                                                                   |
+|                                  +---------+---------------+-------------------------------------------------------------------------------------------------------------+
+|                                  |E_GROUPQ |B26001         |B26001_001E                                                                                                  |
++----------------------------------+---------+---------------+-------------------------------------------------------------------------------------------------------------+
+
+<br><br>
+
+### Step 2
+
+<br>
+
+<h4>EP Variables</h4> 
+
+Obtain or derive percentages for the 16 CDC SVI variables.
+
++----------------------------------+----------+-------------------------------------------------------------------------------------------------------------+
+|Theme                             |Variable  |Formula                                                                                                      |
++==================================+==========+=============================================================================================================+
+|Theme 1: Socioeconomic            |EP_POV150 |(E_POV150/S1701_C01_001E)*100                                                                                |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_UNEMP  |DP03_0009PE                                                                                                  |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_HBURD  |(E_HBURD/S2503_C01_001E)*100                                                                                 |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_NOHSDP |S0601_C01_033E                                                                                               |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_UNINSUR|S2701_C05_001E                                                                                               |
++----------------------------------+----------+-------------------------------------------------------------------------------------------------------------+
+|Theme 2: Household Characteristics|EP_AGE65  |S0101_C02_030E                                                                                               |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_AGE17  |DP05_0019PE                                                                                                  |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_DISABL |DP02_0072PE                                                                                                  |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_SNGPNT |DP02_0007PE + DP02_0011PE                                                                                    |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_LIMENG |(E_LIMENG/B16005_001E)*100                                                                                   |
++----------------------------------+----------+-------------------------------------------------------------------------------------------------------------+
+|Theme 3: Minority Status          |EP_MINRTY |100.0-DP05_0019PE                                                                                            |
++----------------------------------+----------+-------------------------------------------------------------------------------------------------------------+
+|Theme 4:Housing/Transport         |EP_MUNIT  |DP04_0012PE + DP04_0013P                                                                                     |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_MOBILE |DP04_0014PE                                                                                                  |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_CROWD  |DP04_0078PE + DP04_0079PE                                                                                    |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_NOVEH  |DP04_0058PE                                                                                                  |
+|                                  +----------+-------------------------------------------------------------------------------------------------------------+
+|                                  |EP_GROUPQ |(E_GROUPQ/S0601_C01_001E)*100                                                                                |
++----------------------------------+----------+-------------------------------------------------------------------------------------------------------------+
+
+<br><br>
+
+### Step 3-7
+
+<br>
+
+<center><h4>EPL Variables</h4>
+
+Rank the EP variables to get percentile rankings (or the CDC/ATSDR SVI rankings) for each of the 16 variables:
+
+<strong><strong>EPL_THEMEX = Percent rank EP_THEMEX with 4 significant digits</strong></strong>
+
+<br><br>
+
+<h4>SPL Variables</h4>
+
+Sum the EPL variables by theme:
+
+<strong><strong>SPL_THEME1 = EPL_POV150 + EPL_UNEMP + EPL_HBURD + EPL_NOHSDP + EPL_UNINSUR
+
+SPL_THEME2 = EPL_AGE65 + EPL_AGE17 + EPL_DISABL + EPL_SNGPNT + EPL_LIMENG
+
+SPL_THEME3 = EPL_MINRTY
+
+SPL_THEME4 = EPL_MUNIT + EPL_MOBILE + EPL_CROWD + EPL_NOVEH + EPL_GROUPQ</strong></strong>
+
+<br><br>
+
+<h4>RPL Variables</h4>
+
+Rank the theme-specific SPL variable:
+
+<strong><strongRPL_THEMEX = Percent rank SPL_THEMEX with 4 significant digits</strong></strong>
+
+<br><br>
+
+<h4>Overall SPL Variable (SPL_THEMES)</h4>
+
+Sum the SPL variables from all four themes:
+
+<strong><strong>SPL_THEMES = SPL_THEME1 + SPL_THEME2 + SPL_THEME3 + SPL_THEME4</strong></strong>
+
+<br><br>
+
+<h4>Overall RPL Variable (RPL_THEMES)</h4>
+
+Rank SPL_THEMES. This is the overall summary ranking variable:
+
+<strong><strong>RPL_THEMEX = Percent rank SPL_THEMES with 4 significant digits</center></strong></strong>
+
+<br><br>
+
+> County
+
+2022 SVI measures were accessed on the [SVI website](https://www.atsdr.cdc.gov/place-health/php/svi/svi-data-documentation-download.html) on December 1, 2024. There are 3,144 counties measured. "RPL_THEMES" is the SVI measure of counties nationally ranked. 
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1149">Show Code</button>
+  <div id="code1149" class="collapse">
+```{r, eval = F}
+SVI_2022_C <- read.csv("SVI_2022_US_county.csv")
+SVI_2022_C$GEOID <- ifelse(nchar(SVI_2022_C$FIPS) == 4, paste(0, SVI_2022_C$FIPS, sep=""), SVI_2022_C$FIPS)
+save(SVI_2022_C, file = "SVI_2022_C.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> Census Tract
+
+2022 SVI measures were accessed on the [SVI website](https://www.atsdr.cdc.gov/place-health/php/svi/svi-data-documentation-download.html) on December 1, 2024. There are 84,120 census tracts measured. "RPL_THEMES" is the SVI measure of census tracts nationally ranked. 
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1064">Show Code</button>
+  <div id="code1064" class="collapse">
+```{r, eval = F}
+SVI_2022_CT <- read.csv("SVI_2022_US.csv")
+SVI_2022_CT$GEOID <- ifelse(nchar(SVI_2022_CT$FIPS) == 10, paste(0, SVI_2022_CT$FIPS, sep=""), SVI_2022_CT$FIPS)
+save(SVI_2022_CT, file = "SVI_2022_CT.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> Census Block Group
+
+The following census tables required to calculate the SVI are not available at the census block group (CBG) level: S1701_C01, S2701_C04, S0101_C01, S2503_C01, S0601_C01, DP02, DP03, DP04, DP05. Only the following census tables are present at the CBG level: B06009, B16005, B26001. As there are so few variables available but we want to investigate the SVI at the CBG level it may be more accurately represent the SVI by assigning the census tract SVI score to the encompassing CBGs. To control for the CBGs which don't reside within the boundaries of a single census tract the SVI attributed to that CBG will be a weighted mean based on the proportion of area overlapping a given CT.
+
+There are 242,336 CBGs in the 2022 census with 2,164 of them having a population of 0. When CT values are applied to CBGs there are an additional 2,490 CBGs consisting of 922 CTs which have NAs.
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code981">Show Code</button>
+  <div id="code981" class="collapse">
+```{r, eval = F}
+load("SVI_2022_CT.RData")
+Sys.getenv("CENSUS_KEY") # to check that the API key is in the system
+states_removed <- c("60", "66", "69", "74", "78") # These are the state numbers which won't be included
+states <- setdiff(unique(fips_codes$state_code), states_removed)
+
+CBG_2022_Geo <- do.call(rbind, lapply(1:length(states), function(x){
+SDVI_2022_CBG <- get_acs(
+    year = 2022,
+    geography = "block group",
+    geometry = TRUE,
+    state = states[x],
+    key = Sys.getenv("CENSUS_KEY"),
+    variables = "B01003_001")
+}))
+sum(CBG_2022_Geo$estimate == 0)
+CBG_2022_Geo <- CBG_2022_Geo[!CBG_2022_Geo$estimate == 0,]
+CBG_2022_Geo <- CBG_2022_Geo[, c("GEOID", "geometry")]
+save(CBG_2022_Geo, file = "CBG_2022_Geo.RData")
+SVI_2022_CBG <- as.data.frame(CBG_2022_Geo$GEOID)
+colnames(SVI_2022_CBG) <- "GEOID_CBG"
+SVI_2022_CBG$GEOID <- substr(CBG_2022_Geo$GEOID, 1, 11)
+SVI_2022_CBG <- plyr::join(SVI_2022_CBG, SVI_2022_CT)
+missing <- SVI_2022_CBG[is.na(SVI_2022_CBG$E_TOTPOP),]
+length(unique(missing$GEOID))
+save(SVI_2022_CBG, file = "SVI_2022_CBG.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+# SDI Production
+***
+<br>
+
+## Overview
+***
+<br>
+
+Information for this measure can be found from the [Graham-Center site](https://www.graham-center.org/maps-data-tools/social-deprivation-index.html)
+
+The Social Deprivation Index measures were initially developed by @Butler2013 using 2005–2009 American Community Survey (ACS) 5-year estimates and calculated at the Primary Care Service Areas (PCSA).  The index and the associated measures are updated each year with more recent data as soon as the ACS data becomes available. The SDI and the measures are available for the following years: ACS data (5-year estimates from 2008-2012, 2011-2015, 2012-2016, 2013-2017, 2014-2018, and 2015-2019) and 2) using additional geographies: counties, census tract, Zip Code Tabulation Areas (ZCTA), and PCSAs. 
+
+The final SDI is a composite measure of seven demographic characteristics collected in the American Community Survey (ACS): 
+
++----------------------------------------------------+---------+-------+:--------------------------------------------------------------------------------------:+
+|Census Variable                                     |Name     |Table  |<center>Formula</center>                                                                |
++====================================================+=========+=======+:======================================================================================:+
+|Population <100% federal poverty limit, %           |POV      |C17002 |${\sum(002,003)\over 001}x100$                                                          |
++----------------------------------------------------+---------+-------+----------------------------------------------------------------------------------------+
+|Population ≥25 years with <12 years education, %    |NOHSDP   |B15003 |${\sum(002-016)\over 001}x100$                                                          |
++----------------------------------------------------+---------+-------+----------------------------------------------------------------------------------------+
+|Non-employed for population 20-64 years, %          |NOEMP    |B23024 |${\sum(008,009,015,016,023,024,030,031)\over \sum(006,009,013,016,021,024,028,031)}x100$|
++----------------------------------------------------+---------+-------+----------------------------------------------------------------------------------------+
+|Households living in renter-occupied housing, %     |RENT     |B25003 |${003\over 001}x100$                                                                    |
++----------------------------------------------------+---------+-------+----------------------------------------------------------------------------------------+
+|Households living in crowded housing, %             |CROWD    |B25014 |${\sum(005-007,011-013)\over 001}x100$                                                  |
++----------------------------------------------------+---------+-------+----------------------------------------------------------------------------------------+
+|Single parent families with dependents <18 years, % |SNGPRNT  |B11003 |${\sum(010,016)\over 001}x100$                                                          |
++----------------------------------------------------+---------+-------+----------------------------------------------------------------------------------------+
+|Households with no vehicle, %                       |NOVEH    |B25044 |${\sum(003,010)\over 001}x100$                                                          |
++----------------------------------------------------+---------+-------+----------------------------------------------------------------------------------------+
+
+<br><br>
+
+## SDI Calculation
+***
+
+<br>
+
+> CBG
+
+<div class = "row">
+<div class = "col-md-3">
+  
+|Variable  |Weights|
+|:---------|------:|
+|POV       |0.787  |
+|NOHSDP    |0.580  |
+|NOEMP     |0.418  |
+|RENT      |0.636  |
+|CROWD     |0.377  |
+|SNGPNT    |0.477  |
+|NOVEH     |0.535  |
+
+</div>
+
+<div class = "col-md-1">
+</div>
+
+<div class = "col-md-6">
+The table describes the weights attributed to the seven composite variables resulting from factor analysis.
+</div>
+
+<div class = "col-md-2">
+</div>
+</div>
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1132">Show Code</button>
+  <div id="code1132" class="collapse">
+```{r, eval = F}
+load("SDVI_2022_CBG_Imp.RData")
+
+# Producing the variables
+SDI_2022_CBG <- mutate(SDVI_2022_CBG_Imp,
+    POV = (C17002_002 + C17002_003)/C17002_001,
+    NOHSDP = (B15003_002 + B15003_003 + B15003_004 + B15003_005 + B15003_006 + B15003_007 + B15003_008 + B15003_009 + B15003_010 + B15003_011 + B15003_012 + B15003_013 + B15003_014 + B15003_015 + B15003_016) /B15003_001,
+    NONEMP = (B23024_008 + B23024_009 + B23024_015 + B23024_016 + B23024_023 + B23024_024 + B23024_030 + B23024_031)/(B23024_006 + B23024_009 + B23024_013 + B23024_016 + B23024_021 + B23024_024 + B23024_028 + B23024_031),
+    RENT = B25003_003/B25003_001,
+    CROWD = (B25014_005 + B25014_006 + B25014_007 + B25014_011 + B25014_012 + B25014_013)/B25014_001,
+    SNGPNT  = (B11003_010 + B11003_016)/B11003_001,
+    NOVEH = (B25044_010 + B25044_003)/B25044_001,
+) %>%
+  select(GEOID, Block_Group, Tract, County, State, POV, NOHSDP, NONEMP, RENT, CROWD, SNGPNT, NOVEH, B01003_001
+) %>%
+  select(
+    everything()
+  )
+hist(SDI_2022_CBG$B01003_001)
+SDI_2022_CBG$B01003_001 <- log(SDI_2022_CBG$B01003_001)
+
+# Imputation by replacing NAs with 0
+colSums(is.na(SDI_2022_CBG)) # There are between 80-1069 NAs
+SDI_2022_CBG[is.na(SDI_2022_CBG)] <- 0
+colSums(is.na(SDI_2022_CBG))
+SDI_2022_CBG_RawVars <- SDI_2022_CBG
+save(SDI_2022_CBG_RawVars, file = "~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_CBG_RawVars.RData")
+
+# Transforming the variables into percentiles
+SDI_short <- SDI_2022_CBG[, c("GEOID", "POV", "NOHSDP", "NONEMP", "RENT", "CROWD", "SNGPNT", "NOVEH")]
+rownames(SDI_short) <- SDI_short$GEOID
+SDI_short$GEOID <- NULL
+identical(rownames(SDI_short), SDI_2022_CBG$GEOID)
+SDI_Scores <- as.data.frame(sapply(1:ncol(SDI_short), function(x){
+  var_score <- xtile(SDI_short[,x], n = 100, wt = SDI_2022_CBG$B01003_001)
+}))
+colnames(SDI_Scores) <- colnames(SDI_short)
+rownames(SDI_Scores) <- rownames(SDI_short)
+
+# Factor analysis on the percentile data via the principal factor solution method is performed with a one factor solution to produce the SDI score.
+identical(rownames(SDI_Scores), SDI_2022_CBG$GEOID)
+sdi.fa <- fa(SDI_Scores, nfactors = 1, fm = "pa", weight = SDI_2022_CBG$B01003_001)
+
+# Saving the loadings
+SDI_2022_Loadings <- as.data.frame(loadings(sdi.fa)[])
+colnames(SDI_2022_Loadings) <- "CBG"
+SDI_2022_Loadings$Vars <- rownames(SDI_2022_Loadings)
+SDI_2022_Loadings <- SDI_2022_Loadings[,c("Vars", "CBG")]
+save(SDI_2022_Loadings, file = "~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_Loadings.RData")
+
+# Pulling the raw scores as the raw SDI, producing the SDI on a scale of 0-100
+SDI_2022_FA_SC <- as.data.frame(sdi.fa$scores)
+colnames(SDI_2022_FA_SC) <- c("SDI_2022_Raw")
+identical(rownames(SDI_2022_FA_SC), SDI_2022_CBG$GEOID)
+SDI_2022_FA_SC$SDI_2022 <- xtile(SDI_2022_FA_SC$SDI_2022_Raw, n = 100, wt = SDI_2022_CBG$B01003_001)
+SDI_2022_FA_SC$GEOID <- rownames(SDI_2022_FA_SC)
+SDI_2022_CBG <- plyr::join(SDI_2022_CBG, SDI_2022_FA_SC, by = "GEOID")
+save(SDI_2022_CBG, file = "~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_CBG.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> CT
+
+<div class = "row">
+<div class = "col-md-3">
+  
+|Variable  |Weights|
+|:---------|------:|
+|POV       |0.861  |
+|NOHSDP    |0.677  |
+|NOEMP     |0.486  |
+|RENT      |0.665  |
+|CROWD     |0.450  |
+|SNGPNT    |0.628  |
+|NOVEH     |0.624  |
+
+</div>
+
+<div class = "col-md-1">
+</div>
+
+<div class = "col-md-6">
+The table describes the weights attributed to the seven composite variables resulting from factor analysis.
+</div>
+
+<div class = "col-md-2">
+</div>
+</div>
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1227">Show Code</button>
+  <div id="code1227" class="collapse">
+```{r, eval = F}
+load("SDVI_2022_CT_Imp.RData")
+
+# Producing the variables
+SDI_2022_CT <- mutate(SDVI_2022_CT_Imp,
+    POV = (C17002_002 + C17002_003)/C17002_001,
+    NOHSDP = (B15003_002 + B15003_003 + B15003_004 + B15003_005 + B15003_006 + B15003_007 + B15003_008 + B15003_009 + B15003_010 + B15003_011 + B15003_012 + B15003_013 + B15003_014 + B15003_015 + B15003_016) /B15003_001,
+    NONEMP = (B23024_008 + B23024_009 + B23024_015 + B23024_016 + B23024_023 + B23024_024 + B23024_030 + B23024_031)/(B23024_006 + B23024_009 + B23024_013 + B23024_016 + B23024_021 + B23024_024 + B23024_028 + B23024_031),
+    RENT = B25003_003/B25003_001,
+    CROWD = (B25014_005 + B25014_006 + B25014_007 + B25014_011 + B25014_012 + B25014_013)/B25014_001,
+    SNGPNT  = (B11003_010 + B11003_016)/B11003_001,
+    NOVEH = (B25044_010 + B25044_003)/B25044_001,
+) %>%
+  select(GEOID, Tract, County, State, POV, NOHSDP, NONEMP, RENT, CROWD, SNGPNT, NOVEH, B01003_001
+) %>%
+  select(
+    everything()
+  )
+hist(SDI_2022_CT$B01003_001)
+SDI_2022_CT$B01003_001 <- log(SDI_2022_CT$B01003_001)
+
+# Imputation by replacing NAs with 0
+colSums(is.na(SDI_2022_CT)) # There are 0 NAs
+SDI_2022_CT[is.na(SDI_2022_CT)] <- 0
+colSums(is.na(SDI_2022_CT))
+SDI_2022_CT_RawVars <- SDI_2022_CT
+save(SDI_2022_CT_RawVars, file = "~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_CT_RawVars.RData")
+
+# Transforming the variables into percentiles
+SDI_short <- SDI_2022_CT[, c("GEOID", "POV", "NOHSDP", "NONEMP", "RENT", "CROWD", "SNGPNT", "NOVEH")]
+rownames(SDI_short) <- SDI_short$GEOID
+SDI_short$GEOID <- NULL
+identical(rownames(SDI_short), SDI_2022_CT$GEOID)
+SDI_Scores <- as.data.frame(sapply(1:ncol(SDI_short), function(x){
+  var_score <- xtile(SDI_short[,x], n = 100, wt = SDI_2022_CT$B01003_001)
+}))
+colnames(SDI_Scores) <- colnames(SDI_short)
+rownames(SDI_Scores) <- rownames(SDI_short)
+
+# Factor analysis on the percentile data via the principal factor solution method is performed with a one factor solution to produce the SDI score.
+identical(rownames(SDI_Scores), SDI_2022_CT$GEOID)
+sdi.fa <- fa(SDI_Scores, nfactors = 1, fm = "pa", weight = SDI_2022_CT$B01003_001)
+
+# Saving the loadings
+identical(SDI_2022_Loadings$Vars, colnames(sdi.fa$residual))
+SDI_2022_Loadings$CT <- loadings(sdi.fa)[,"PA1"]
+save(SDI_2022_Loadings, file = "SDI_2022_Loadings.RData")
+
+# Pulling the raw scores as the raw SDI, producing the SDI on a scale of 0-100
+SDI_2022_FA_SC <- as.data.frame(sdi.fa$scores)
+colnames(SDI_2022_FA_SC) <- c("SDI_2022_Raw")
+identical(rownames(SDI_2022_FA_SC), SDI_2022_CT$GEOID)
+SDI_2022_FA_SC$SDI_2022 <- xtile(SDI_2022_FA_SC$SDI_2022_Raw, n = 100, wt = SDI_2022_CT$B01003_001)
+SDI_2022_FA_SC$GEOID <- rownames(SDI_2022_FA_SC)
+SDI_2022_CT <- plyr::join(SDI_2022_CT, SDI_2022_FA_SC, by = "GEOID")
+save(SDI_2022_CT, file = "~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_CT.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> County
+
+<div class = "row">
+<div class = "col-md-3">
+  
+|Variable  |Weights|
+|:---------|------:|
+|POV       |0.916  |
+|NOHSDP    |0.710  |
+|NOEMP     |0.686  |
+|RENT      |0.438  |
+|CROWD     |0.333  |
+|SNGPNT    |0.622  |
+|NOVEH     |0.626  |
+
+</div>
+
+<div class = "col-md-1">
+</div>
+
+<div class = "col-md-6">
+The table describes the weights attributed to the seven composite variables resulting from factor analysis.
+</div>
+
+<div class = "col-md-2">
+</div>
+</div>
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1320">Show Code</button>
+  <div id="code1320" class="collapse">
+```{r, eval = F}
+load("SDVI_2022_C_Imp.RData")
+
+# Producing the variables
+SDI_2022_C <- mutate(SDVI_2022_C_Imp,
+    POV = (C17002_002 + C17002_003)/C17002_001,
+    NOHSDP = (B15003_002 + B15003_003 + B15003_004 + B15003_005 + B15003_006 + B15003_007 + B15003_008 + B15003_009 + B15003_010 + B15003_011 + B15003_012 + B15003_013 + B15003_014 + B15003_015 + B15003_016) /B15003_001,
+    NONEMP = (B23024_008 + B23024_009 + B23024_015 + B23024_016 + B23024_023 + B23024_024 + B23024_030 + B23024_031)/(B23024_006 + B23024_009 + B23024_013 + B23024_016 + B23024_021 + B23024_024 + B23024_028 + B23024_031),
+    RENT = B25003_003/B25003_001,
+    CROWD = (B25014_005 + B25014_006 + B25014_007 + B25014_011 + B25014_012 + B25014_013)/B25014_001,
+    SNGPNT  = (B11003_010 + B11003_016)/B11003_001,
+    NOVEH = (B25044_010 + B25044_003)/B25044_001,
+) %>%
+  select(GEOID, County, State, POV, NOHSDP, NONEMP, RENT, CROWD, SNGPNT, NOVEH, B01003_001
+) %>%
+  select(
+    everything()
+  )
+hist(SDI_2022_C$B01003_001)
+SDI_2022_C$B01003_001 <- log(SDI_2022_C$B01003_001)
+
+# Imputation by replacing NAs with 0
+colSums(is.na(SDI_2022_C)) # There are 0 NAs
+SDI_2022_C_RawVars <- SDI_2022_C
+save(SDI_2022_C_RawVars, file = "~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_C_RawVars.RData")
+
+# Transforming the variables into percentiles
+SDI_short <- SDI_2022_C[, c("GEOID", "POV", "NOHSDP", "NONEMP", "RENT", "CROWD", "SNGPNT", "NOVEH")]
+rownames(SDI_short) <- SDI_short$GEOID
+SDI_short$GEOID <- NULL
+identical(rownames(SDI_short), SDI_2022_C$GEOID)
+SDI_Scores <- as.data.frame(sapply(1:ncol(SDI_short), function(x){
+  var_score <- xtile(SDI_short[,x], n = 100, wt = SDI_2022_C$B01003_001)
+}))
+colnames(SDI_Scores) <- colnames(SDI_short)
+rownames(SDI_Scores) <- rownames(SDI_short)
+
+# Factor analysis on the percentile data via the principal factor solution method is performed with a one factor solution to produce the SDI score.
+identical(rownames(SDI_Scores), SDI_2022_C$GEOID)
+sdi.fa <- fa(SDI_Scores, nfactors = 1, fm = "pa", weight = SDI_2022_C$B01003_001)
+
+# Saving the loadings
+identical(SDI_2022_Loadings$Vars, colnames(sdi.fa$residual))
+SDI_2022_Loadings$C <- loadings(sdi.fa)[,"PA1"]
+save(SDI_2022_Loadings, file = "SDI_2022_Loadings.RData")
+
+# Pulling the raw scores as the raw SDI, producing the SDI on a scale of 0-100
+SDI_2022_FA_SC <- as.data.frame(sdi.fa$scores)
+colnames(SDI_2022_FA_SC) <- c("SDI_2022_Raw")
+identical(rownames(SDI_2022_FA_SC), SDI_2022_C$GEOID)
+SDI_2022_FA_SC$SDI_2022 <- xtile(SDI_2022_FA_SC$SDI_2022_Raw, n = 100, wt = SDI_2022_C$B01003_001)
+SDI_2022_FA_SC$GEOID <- rownames(SDI_2022_FA_SC)
+SDI_2022_C <- plyr::join(SDI_2022_C, SDI_2022_FA_SC, by = "GEOID")
+save(SDI_2022_C, file = "~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_C.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+# NSS7 Production
+***
+<br>
+
+## Overview
+***
+<br>
+
+[The Neighborhood Stress Score (NSS7)](https://www.mass.gov/files/documents/2017/11/07/social-determinants-of-health-faq.pdf) is a composite measure of economic stress which summarizes 7 census variables that were identified in a principal components analysis of 2013 Massachusetts Medicaid data (@Ash2017). The NSS7 is derived from addresses geocoded at the census block group level; it was developed by Arlene Ash and others at the [University of Massachusetts Medical School](https://www.mass.gov/doc/umass-modeling-sdh-summary-report-3/download) as part of a project to incorporate social determinants of health (SDH) variables into risk adjustment for MassHealth’s global payment models.
+
+Specifically, the neighborhood stress score is made up of the following components measured at the census block level source:
+
++------------------------------------------------------+---------+-------+:-----------------------------:+
+|Census Variable                                       |Name     |Table  |<center>Formula</center>       |
++======================================================+=========+=======+:=============================:+
+|Families <100% federal poverty limit, %               |POV      |B17017 |${002\over 001}x100$           |
++------------------------------------------------------+---------+-------+-------------------------------+
+|Families <200% federal poverty limit, %               |POV_200  |C17002 |${\sum(002-007)\over 001}x100$ |
++------------------------------------------------------+---------+-------+-------------------------------+
+|Households receiving public assistance, %             |POV_PA   |B19058 |${002\over 001}x100$           |
++------------------------------------------------------+---------+-------+-------------------------------+
+|Adults who are unemployed, %                          |UNEMP    |B23025 |${005\over 003}x100$           |
++------------------------------------------------------+---------+-------+-------------------------------+
+|Households living in crowded housing, %               |NOVEH    |B25044 |${\sum(003,010)\over 001}x100$ |
++------------------------------------------------------+---------+-------+-------------------------------+
+|Single parent families with dependents <18 years, %   |SNGPRNT  |B11003 |${\sum(010,016)\over 001}x100$ |
++------------------------------------------------------+---------+-------+-------------------------------+
+|Individuals ≥25 years whith no high school diploma, % |NOHSDP   |B15003 |${\sum(002-016)\over 001}x100$ |
++------------------------------------------------------+---------+-------+-------------------------------+
+
+How the NSS7 was calculated as per [Ash et al. (2017)](https://jamanetwork.com/journals/jamainternalmedicine/fullarticle/2647322) and the websites linked above:
+
+<strong><strong>1.</strong></strong> Each member’s current address was geocoded to the census block group level and included the value of each census variable $(v1, v2, …, v7)$ to a file with one line per member. 
+
+<strong><strong>2.</strong></strong> Each variable was standardized, letting $z1 = {(v1 – overline{x}(v1))\over sigma(v1)}$, etc., and added together to get $S = z1 + z2 + …+ z7$. 
+
+<strong><strong>3.</strong></strong> Then it was defined $NSS7 = {(S – overline{x}(S))\over sigma(S)}$. 
+
+<strong><strong>4.</strong></strong> Finally, for the ~5% of members whose addresses could not be assigned to a census block group, we set $NSS7 = 0$. 
+
+By construction, NSS7 has $overline{x} = 0$ and $sigma$ a little less than 1 (because of the extra 0s due to non-geocodable addresses), but its distribution is not necessarily normally distributed. In the original data, its values ranged from a little more than -2 to a little more than +3. The coefficient of NSS7 in a regression model is the increment to expected cost associated with approximately a 1 standard deviation ($sigma$) increase in NSS7. Note that in the original report weights were used from principal components analysis, but for simplicity – and given that these weights varied little across the 7 variables – is was subsequently calculated using the un-weighted sum, as just described.
+
+<br><br>
+
+> CBG
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1429">Show Code</button>
+  <div id="code1429" class="collapse">
+```{r, eval = F}
+NSS7_2022_CBG <- mutate(SDVI_2022_CBG_Imp,
+    POV_100_P = B17017_002/B17017_001*100,
+    POV_200_P = (C17002_007 + C17002_006 + C17002_005 + C17002_004 + C17002_003 + C17002_002)/C17002_001*100,
+    POV_PA_P = B19058_002/B19058_001*100,
+    UNEMP_P = B23025_005/B23025_003*100,
+    NOVEH_P = (B25044_010 + B25044_003)/B25044_001*100,
+    SNGPNT_P  = (B11003_010 + B11003_016)/B11003_001*100,
+    NOHSDP_P = (B15003_002 + B15003_003 + B15003_004 + B15003_005 + B15003_006 + B15003_007 + B15003_008 + B15003_009 + B15003_010 + B15003_011 + B15003_012 + B15003_013 + B15003_014 + B15003_015 + B15003_016)/B15003_001*100,
+) %>%
+    select(GEOID, Block_Group, Tract, County, State, ends_with("P"), starts_with("MP")
+) %>%
+  select(
+    everything()
+  )
+
+NSS7_2022_CBG$POV_100_P <- ifelse(is.na(NSS7_2022_CBG$POV_100_P), 0, NSS7_2022_CBG$POV_100_P)
+NSS7_2022_CBG$POV_200_P <- ifelse(is.na(NSS7_2022_CBG$POV_200_P), 0, NSS7_2022_CBG$POV_200_P)
+NSS7_2022_CBG$POV_PA_P <- ifelse(is.na(NSS7_2022_CBG$POV_PA_P), 0, NSS7_2022_CBG$POV_PA_P)
+NSS7_2022_CBG$UNEMP_P <- ifelse(is.na(NSS7_2022_CBG$UNEMP_P), 0, NSS7_2022_CBG$UNEMP_P)
+NSS7_2022_CBG$NOVEH_P <- ifelse(is.na(NSS7_2022_CBG$NOVEH_P), 0, NSS7_2022_CBG$NOVEH_P)
+NSS7_2022_CBG$SNGPNT_P <- ifelse(is.na(NSS7_2022_CBG$SNGPNT_P), 0, NSS7_2022_CBG$SNGPNT_P)
+NSS7_2022_CBG$NOHSDP_P <- ifelse(is.na(NSS7_2022_CBG$NOHSDP_P), 0, NSS7_2022_CBG$NOHSDP_P)
+
+NSS7_2022_CBG$POV_100_S <- (NSS7_2022_CBG$POV_100_P - mean(NSS7_2022_CBG$POV_100_P, na.rm = T))/sd(NSS7_2022_CBG$POV_100_P, na.rm = T)
+NSS7_2022_CBG$POV_200_S <- (NSS7_2022_CBG$POV_200_P - mean(NSS7_2022_CBG$POV_200_P, na.rm = T))/sd(NSS7_2022_CBG$POV_200_P, na.rm = T)
+NSS7_2022_CBG$POV_PA_S <- (NSS7_2022_CBG$POV_PA_P - mean(NSS7_2022_CBG$POV_PA_P, na.rm = T))/sd(NSS7_2022_CBG$POV_PA_P, na.rm = T)
+NSS7_2022_CBG$UNEMP_S <- (NSS7_2022_CBG$UNEMP_P - mean(NSS7_2022_CBG$UNEMP_P, na.rm = T))/sd(NSS7_2022_CBG$UNEMP_P, na.rm = T)
+NSS7_2022_CBG$NOVEH_S <- (NSS7_2022_CBG$NOVEH_P - mean(NSS7_2022_CBG$NOVEH_P, na.rm = T))/sd(NSS7_2022_CBG$NOVEH_P, na.rm = T)
+NSS7_2022_CBG$SNGPNT_S <- (NSS7_2022_CBG$SNGPNT_P - mean(NSS7_2022_CBG$SNGPNT_P, na.rm = T))/sd(NSS7_2022_CBG$SNGPNT_P, na.rm = T)
+NSS7_2022_CBG$NOHSDP_S <- (NSS7_2022_CBG$NOHSDP_P - mean(NSS7_2022_CBG$NOHSDP_P, na.rm = T))/sd(NSS7_2022_CBG$NOHSDP_P, na.rm = T)
+NSS7_2022_CBG$NSS7_Raw <- NSS7_2022_CBG$POV_100_S + NSS7_2022_CBG$POV_200_S + NSS7_2022_CBG$POV_PA_S + NSS7_2022_CBG$UNEMP_S + NSS7_2022_CBG$NOVEH_S + NSS7_2022_CBG$SNGPNT_S + NSS7_2022_CBG$NOHSDP_S
+NSS7_2022_CBG$NSS7_original <- (NSS7_2022_CBG$NSS7_Raw - mean(NSS7_2022_CBG$NSS7_Raw, na.rm = T))/sd(NSS7_2022_CBG$NSS7_Raw, na.rm = T)
+NSS7_2022_CBG$NSS7 <- round(percent_rank(NSS7_2022_CBG$NSS7_Raw)*100, 0)
+
+mean(NSS7_2022_CBG$NSS7, na.rm = T) # 50
+sd(NSS7_2022_CBG$NSS7, na.rm = T) # 28.87
+range(NSS7_2022_CBG$NSS7, na.rm = T) # 0 to 100
+
+mean(NSS7_2022_CBG$NSS7_original, na.rm = T) # 5.14x10^-16
+sd(NSS7_2022_CBG$NSS7_original, na.rm = T) # 1
+range(NSS7_2022_CBG$NSS7_original, na.rm = T) # -1.38 to 7.65
+
+mean(NSS7_2022_CBG$NSS7_Raw, na.rm = T) # -1.24x10^-14
+sd(NSS7_2022_CBG$NSS7_Raw, na.rm = T) # 4.88
+range(NSS7_2022_CBG$NSS7_Raw, na.rm = T) # -6.72 to 37.30
+
+save(NSS7_2022_CBG, file = "~/Desktop/SDVI/NSS7/2022/NSS7_2022_CBG.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> CT
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1488">Show Code</button>
+  <div id="code1488" class="collapse">
+```{r, eval = F}
+NSS7_2022_CT <- mutate(SDVI_2022_CT_Imp,
+    POV_100_P = B17017_002/B17017_001*100,
+    POV_200_P = (C17002_007 + C17002_006 + C17002_005 + C17002_004 + C17002_003 + C17002_002)/C17002_001*100,
+    POV_PA_P = B19058_002/B19058_001*100,
+    UNEMP_P = B23025_005/B23025_003*100,
+    NOVEH_P = (B25044_010 + B25044_003)/B25044_001*100,
+    SNGPNT_P  = (B11003_010 + B11003_016)/B11003_001*100,
+    NOHSDP_P = (B15003_002 + B15003_003 + B15003_004 + B15003_005 + B15003_006 + B15003_007 + B15003_008 + B15003_009 + B15003_010 + B15003_011 + B15003_012 + B15003_013 + B15003_014 + B15003_015 + B15003_016)/B15003_001*100,
+) %>%
+    select(GEOID, Tract, County, State, ends_with("P"), starts_with("MP")
+) %>%
+  select(
+    everything()
+  )
+
+NSS7_2022_CT$POV_100_P <- ifelse(is.na(NSS7_2022_CT$POV_100_P), 0, NSS7_2022_CT$POV_100_P)
+NSS7_2022_CT$POV_200_P <- ifelse(is.na(NSS7_2022_CT$POV_200_P), 0, NSS7_2022_CT$POV_200_P)
+NSS7_2022_CT$POV_PA_P <- ifelse(is.na(NSS7_2022_CT$POV_PA_P), 0, NSS7_2022_CT$POV_PA_P)
+NSS7_2022_CT$UNEMP_P <- ifelse(is.na(NSS7_2022_CT$UNEMP_P), 0, NSS7_2022_CT$UNEMP_P)
+NSS7_2022_CT$NOVEH_P <- ifelse(is.na(NSS7_2022_CT$NOVEH_P), 0, NSS7_2022_CT$NOVEH_P)
+NSS7_2022_CT$SNGPNT_P <- ifelse(is.na(NSS7_2022_CT$SNGPNT_P), 0, NSS7_2022_CT$SNGPNT_P)
+NSS7_2022_CT$NOHSDP_P <- ifelse(is.na(NSS7_2022_CT$NOHSDP_P), 0, NSS7_2022_CT$NOHSDP_P)
+
+NSS7_2022_CT$POV_100_S <- (NSS7_2022_CT$POV_100_P - mean(NSS7_2022_CT$POV_100_P, na.rm = T))/sd(NSS7_2022_CT$POV_100_P, na.rm = T)
+NSS7_2022_CT$POV_200_S <- (NSS7_2022_CT$POV_200_P - mean(NSS7_2022_CT$POV_200_P, na.rm = T))/sd(NSS7_2022_CT$POV_200_P, na.rm = T)
+NSS7_2022_CT$POV_PA_S <- (NSS7_2022_CT$POV_PA_P - mean(NSS7_2022_CT$POV_PA_P, na.rm = T))/sd(NSS7_2022_CT$POV_PA_P, na.rm = T)
+NSS7_2022_CT$UNEMP_S <- (NSS7_2022_CT$UNEMP_P - mean(NSS7_2022_CT$UNEMP_P, na.rm = T))/sd(NSS7_2022_CT$UNEMP_P, na.rm = T)
+NSS7_2022_CT$NOVEH_S <- (NSS7_2022_CT$NOVEH_P - mean(NSS7_2022_CT$NOVEH_P, na.rm = T))/sd(NSS7_2022_CT$NOVEH_P, na.rm = T)
+NSS7_2022_CT$SNGPNT_S <- (NSS7_2022_CT$SNGPNT_P - mean(NSS7_2022_CT$SNGPNT_P, na.rm = T))/sd(NSS7_2022_CT$SNGPNT_P, na.rm = T)
+NSS7_2022_CT$NOHSDP_S <- (NSS7_2022_CT$NOHSDP_P - mean(NSS7_2022_CT$NOHSDP_P, na.rm = T))/sd(NSS7_2022_CT$NOHSDP_P, na.rm = T)
+NSS7_2022_CT$NSS7_Raw <- NSS7_2022_CT$POV_100_S + NSS7_2022_CT$POV_200_S + NSS7_2022_CT$POV_PA_S + NSS7_2022_CT$UNEMP_S + NSS7_2022_CT$NOVEH_S + NSS7_2022_CT$SNGPNT_S + NSS7_2022_CT$NOHSDP_S
+NSS7_2022_CT$NSS7_original <- (NSS7_2022_CT$NSS7_Raw - mean(NSS7_2022_CT$NSS7_Raw, na.rm = T))/sd(NSS7_2022_CT$NSS7_Raw, na.rm = T)
+NSS7_2022_CT$NSS7 <- round(percent_rank(NSS7_2022_CT$NSS7_Raw)*100, 0)
+
+mean(NSS7_2022_CT$NSS7, na.rm = T) # 50
+sd(NSS7_2022_CT$NSS7, na.rm = T) # 28.87
+range(NSS7_2022_CT$NSS7, na.rm = T) # 0 to 100
+
+mean(NSS7_2022_CT$NSS7_original, na.rm = T) # 3.47x10^-17
+sd(NSS7_2022_CT$NSS7_original, na.rm = T) # 1
+range(NSS7_2022_CT$NSS7_original, na.rm = T) # -1.58 to 7.82
+
+mean(NSS7_2022_CT$NSS7_Raw, na.rm = T) # -7.46x10^-15
+sd(NSS7_2022_CT$NSS7_Raw, na.rm = T) # 5.28
+range(NSS7_2022_CT$NSS7_Raw, na.rm = T) # -8.36 to 41.28
+
+save(NSS7_2022_CT, file = "~/Desktop/SDVI/NSS7/2022/NSS7_2022_CT.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> C
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1547">Show Code</button>
+  <div id="code1547" class="collapse">
+```{r, eval = F}
+NSS7_2022_C <- mutate(SDVI_2022_C_Imp,
+    POV_100_P = B17017_002/B17017_001*100,
+    POV_200_P = (C17002_007 + C17002_006 + C17002_005 + C17002_004 + C17002_003 + C17002_002)/C17002_001*100,
+    POV_PA_P = B19058_002/B19058_001*100,
+    UNEMP_P = B23025_005/B23025_003*100,
+    NOVEH_P = (B25044_010 + B25044_003)/B25044_001*100,
+    SNGPNT_P  = (B11003_010 + B11003_016)/B11003_001*100,
+    NOHSDP_P = (B15003_002 + B15003_003 + B15003_004 + B15003_005 + B15003_006 + B15003_007 + B15003_008 + B15003_009 + B15003_010 + B15003_011 + B15003_012 + B15003_013 + B15003_014 + B15003_015 + B15003_016)/B15003_001*100,
+) %>%
+    select(GEOID, County, State, ends_with("P"), starts_with("MP")
+) %>%
+  select(
+    everything()
+  )
+
+NSS7_2022_C$POV_100_P <- ifelse(is.na(NSS7_2022_C$POV_100_P), 0, NSS7_2022_C$POV_100_P)
+NSS7_2022_C$POV_200_P <- ifelse(is.na(NSS7_2022_C$POV_200_P), 0, NSS7_2022_C$POV_200_P)
+NSS7_2022_C$POV_PA_P <- ifelse(is.na(NSS7_2022_C$POV_PA_P), 0, NSS7_2022_C$POV_PA_P)
+NSS7_2022_C$UNEMP_P <- ifelse(is.na(NSS7_2022_C$UNEMP_P), 0, NSS7_2022_C$UNEMP_P)
+NSS7_2022_C$NOVEH_P <- ifelse(is.na(NSS7_2022_C$NOVEH_P), 0, NSS7_2022_C$NOVEH_P)
+NSS7_2022_C$SNGPNT_P <- ifelse(is.na(NSS7_2022_C$SNGPNT_P), 0, NSS7_2022_C$SNGPNT_P)
+NSS7_2022_C$NOHSDP_P <- ifelse(is.na(NSS7_2022_C$NOHSDP_P), 0, NSS7_2022_C$NOHSDP_P)
+
+NSS7_2022_C$POV_100_S <- (NSS7_2022_C$POV_100_P - mean(NSS7_2022_C$POV_100_P, na.rm = T))/sd(NSS7_2022_C$POV_100_P, na.rm = T)
+NSS7_2022_C$POV_200_S <- (NSS7_2022_C$POV_200_P - mean(NSS7_2022_C$POV_200_P, na.rm = T))/sd(NSS7_2022_C$POV_200_P, na.rm = T)
+NSS7_2022_C$POV_PA_S <- (NSS7_2022_C$POV_PA_P - mean(NSS7_2022_C$POV_PA_P, na.rm = T))/sd(NSS7_2022_C$POV_PA_P, na.rm = T)
+NSS7_2022_C$UNEMP_S <- (NSS7_2022_C$UNEMP_P - mean(NSS7_2022_C$UNEMP_P, na.rm = T))/sd(NSS7_2022_C$UNEMP_P, na.rm = T)
+NSS7_2022_C$NOVEH_S <- (NSS7_2022_C$NOVEH_P - mean(NSS7_2022_C$NOVEH_P, na.rm = T))/sd(NSS7_2022_C$NOVEH_P, na.rm = T)
+NSS7_2022_C$SNGPNT_S <- (NSS7_2022_C$SNGPNT_P - mean(NSS7_2022_C$SNGPNT_P, na.rm = T))/sd(NSS7_2022_C$SNGPNT_P, na.rm = T)
+NSS7_2022_C$NOHSDP_S <- (NSS7_2022_C$NOHSDP_P - mean(NSS7_2022_C$NOHSDP_P, na.rm = T))/sd(NSS7_2022_C$NOHSDP_P, na.rm = T)
+NSS7_2022_C$NSS7_Raw <- NSS7_2022_C$POV_100_S + NSS7_2022_C$POV_200_S + NSS7_2022_C$POV_PA_S + NSS7_2022_C$UNEMP_S + NSS7_2022_C$NOVEH_S + NSS7_2022_C$SNGPNT_S + NSS7_2022_C$NOHSDP_S
+NSS7_2022_C$NSS7_original <- (NSS7_2022_C$NSS7_Raw - mean(NSS7_2022_C$NSS7_Raw, na.rm = T))/sd(NSS7_2022_C$NSS7_Raw, na.rm = T)
+NSS7_2022_C$NSS7 <- round(percent_rank(NSS7_2022_C$NSS7_Raw)*100, 0)
+
+mean(NSS7_2022_C$NSS7, na.rm = T) # 50
+sd(NSS7_2022_C$NSS7, na.rm = T) # 28.88
+range(NSS7_2022_C$NSS7, na.rm = T) # 0 to 100
+
+mean(NSS7_2022_C$NSS7_original, na.rm = T) # 9.23x10^-17
+sd(NSS7_2022_C$NSS7_original, na.rm = T) # 1
+range(NSS7_2022_C$NSS7_original, na.rm = T) # -2.02 to 7.08
+
+mean(NSS7_2022_C$NSS7_Raw, na.rm = T) # -7.59x10^-16
+sd(NSS7_2022_C$NSS7_Raw, na.rm = T) # 5.52
+range(NSS7_2022_C$NSS7_Raw, na.rm = T) # -11.17 to 39.05
+
+save(NSS7_2022_C, file = "~/Desktop/SDVI/NSS7/2022/NSS7_2022_C.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+# FDep Production
+***
+<br>
+
+## Overview
+***
+<br>
+
+
+Information of the French social deprivation index (FDep) is reported in [Rey et al. (2009)](https://bmcpublichealth.biomedcentral.com/articles/10.1186/1471-2458-9-33) and [Temam et al. (2017)](https://bmcpublichealth.biomedcentral.com/articles/10.1186/s12889-017-4967-3). In general, Four variables derived from previous studies: 
+
++------------------------------------------------------+---------+-------+:--------------------------------------------:+
+|Census Variable                                       |Name     |Table  |<center>Formula</center>                      |
++======================================================+=========+=======+:============================================:+
+|Median household income, \$                           |MedInc   |B19013 |$001$                                         |
++------------------------------------------------------+---------+-------+----------------------------------------------+
+|High school graduates ≥15 years old, %                |HSDP     |B15003 |${\sum(017-025)\over 001}x100$                |
++------------------------------------------------------+---------+-------+----------------------------------------------+
+|Blue-collar workers among the active population, %    |BLUCLR   |C24010 |${\sum(019,030,034,055,066,070)\over 001}x100$|
++------------------------------------------------------+---------+-------+----------------------------------------------+
+|Unemployment rate, %                                  |UNEMP    |B23025 |${005\over 003}x100$                          |
++------------------------------------------------------+---------+-------+----------------------------------------------+
+
+The first two variables constitute negative dimensions of deprivation, and the last two constitute positive dimensions. The FDep was created by taking four census variables and performing PCA, taking the PC1 scores and assigning them to the geographical areas. [Rey et al. (2009)](https://bmcpublichealth.biomedcentral.com/articles/10.1186/1471-2458-9-33) states that when run on French census data, PC1 explained approximately 68% of the variation. 
+
+> CBG
+
+Here PC1 accounted for 52.6% of the variation.
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1633">Show Code</button>
+  <div id="code1633" class="collapse">
+```{r, eval = F}
+FDep_2022_CBG <- mutate(SDVI_2022_CBG_Imp,
+    MEDFI = B19013_001,
+    HSDP = (B15003_017 + B15003_018 + B15003_019 + B15003_020 + B15003_021 + B15003_022 + B15003_023 + B15003_024 + B15003_025)/B15003_001*100,
+    BLUCLR = (C24010_019 + C24010_030 + C24010_034 + C24010_055 + C24010_066 + C24010_070)/C24010_001*100,
+    UNEMP = B23025_005/B23025_003*100,
+) %>%
+    select(GEOID, Block_Group, Tract, County, State, MEDFI, HSDP, BLUCLR, UNEMP
+) %>%
+  select(
+    everything()
+  )
+
+FDep_2022_CBG$HSDP <- ifelse(is.na(FDep_2022_CBG$HSDP), 0, FDep_2022_CBG$HSDP)
+FDep_2022_CBG$BLUCLR <- ifelse(is.na(FDep_2022_CBG$BLUCLR), 0, FDep_2022_CBG$BLUCLR)
+FDep_2022_CBG$UNEMP <- ifelse(is.na(FDep_2022_CBG$UNEMP), 0, FDep_2022_CBG$UNEMP)
+
+FDep_2022_PCA_Vars <- FDep_2022_CBG[,c("GEOID", "MEDFI", "HSDP", "BLUCLR", "UNEMP")]
+rownames(FDep_2022_PCA_Vars) <- paste("x", FDep_2022_CBG$GEOID, sep = "")
+FDep_PCA <- prcomp(FDep_2022_PCA_Vars[,c(2:5)], center = T, scale. = T)
+FDep_PCA$rotation
+summary(FDep_PCA)
+FDep_2022_PCA_Vars$FDep_Original <- FDep_PCA$x[,1]
+FDep_2022_PCA_Vars$FDep <- round(percent_rank(FDep_2022_PCA_Vars$FDep_Original)*100, 0)
+FDep_2022_CBG <- plyr::join(FDep_2022_CBG, FDep_2022_PCA_Vars)
+save(FDep_2022_CBG, file = "~/Desktop/SDVI/FDep/2022/FDep_2022_CBG.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> CT
+
+Here PC1 accounted for 59.1% of the variation.
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1672">Show Code</button>
+  <div id="code1672" class="collapse">
+```{r, eval = F}
+FDep_2022_CT <- mutate(SDVI_2022_CT_Imp,
+    MEDFI = B19013_001,
+    HSDP = (B15003_017 + B15003_018 + B15003_019 + B15003_020 + B15003_021 + B15003_022 + B15003_023 + B15003_024 + B15003_025)/B15003_001*100,
+    BLUCLR = (C24010_019 + C24010_030 + C24010_034 + C24010_055 + C24010_066 + C24010_070)/C24010_001*100,
+    UNEMP = B23025_005/B23025_003*100,
+) %>%
+    select(GEOID, Tract, County, State, MEDFI, HSDP, BLUCLR, UNEMP
+) %>%
+  select(
+    everything()
+  )
+
+FDep_2022_CT$HSDP <- ifelse(is.na(FDep_2022_CT$HSDP), 0, FDep_2022_CT$HSDP)
+FDep_2022_CT$BLUCLR <- ifelse(is.na(FDep_2022_CT$BLUCLR), 0, FDep_2022_CT$BLUCLR)
+FDep_2022_CT$UNEMP <- ifelse(is.na(FDep_2022_CT$UNEMP), 0, FDep_2022_CT$UNEMP)
+
+FDep_2022_PCA_Vars <- FDep_2022_CT[,c("GEOID", "MEDFI", "HSDP", "BLUCLR", "UNEMP")]
+rownames(FDep_2022_PCA_Vars) <- paste("x", FDep_2022_CT$GEOID, sep = "")
+FDep_PCA <- prcomp(FDep_2022_PCA_Vars[,c(2:5)], center = T, scale. = T)
+FDep_PCA$rotation
+summary(FDep_PCA)
+FDep_2022_PCA_Vars$FDep_Original <- FDep_PCA$x[,1]
+FDep_2022_PCA_Vars$FDep <- round(percent_rank(FDep_2022_PCA_Vars$FDep_Original)*100, 0)
+FDep_2022_CT <- plyr::join(FDep_2022_CT, FDep_2022_PCA_Vars)
+save(FDep_2022_CT, file = "~/Desktop/SDVI/FDep/2022/FDep_2022_CT.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+> County
+
+Here PC1 accounted for 59.1% of the variation.
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1711">Show Code</button>
+  <div id="code1711" class="collapse">
+```{r, eval = F}
+FDep_2022_C <- mutate(SDVI_2022_C_Imp,
+    MEDFI = B19013_001,
+    HSDP = (B15003_017 + B15003_018 + B15003_019 + B15003_020 + B15003_021 + B15003_022 + B15003_023 + B15003_024 + B15003_025)/B15003_001*100,
+    BLUCLR = (C24010_019 + C24010_030 + C24010_034 + C24010_055 + C24010_066 + C24010_070)/C24010_001*100,
+    UNEMP = B23025_005/B23025_003*100,
+) %>%
+    select(GEOID, County, State, MEDFI, HSDP, BLUCLR, UNEMP
+) %>%
+  select(
+    everything()
+  )
+
+FDep_2022_C$HSDP <- ifelse(is.na(FDep_2022_C$HSDP), 0, FDep_2022_C$HSDP)
+FDep_2022_C$BLUCLR <- ifelse(is.na(FDep_2022_C$BLUCLR), 0, FDep_2022_C$BLUCLR)
+FDep_2022_C$UNEMP <- ifelse(is.na(FDep_2022_C$UNEMP), 0, FDep_2022_C$UNEMP)
+
+FDep_2022_PCA_Vars <- FDep_2022_C[,c("GEOID", "MEDFI", "HSDP", "BLUCLR", "UNEMP")]
+rownames(FDep_2022_PCA_Vars) <- paste("x", FDep_2022_C$GEOID, sep = "")
+FDep_PCA <- prcomp(FDep_2022_PCA_Vars[,c(2:5)], center = T, scale. = T)
+FDep_PCA$rotation
+summary(FDep_PCA)
+FDep_2022_PCA_Vars$FDep_Original <- FDep_PCA$x[,1]
+FDep_2022_PCA_Vars$FDep <- round(percent_rank(FDep_2022_PCA_Vars$FDep_Original)*100, 0)
+FDep_2022_C <- plyr::join(FDep_2022_C, FDep_2022_PCA_Vars)
+save(FDep_2022_C, file = "~/Desktop/SDVI/FDep/2022/FDep_2022_C.RData")
+```
+  </div>
+</div>
+
+<br><br>
+
+# Producing Final Dataset
+***
+
+Combining all measures into three dataframes representing each geographical level calculated. 
+
+<br><br>
+
+> CBG
+
+This is the data ranking CBG at the national level
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1757">Show Code</button>
+  <div id="code1757" class="collapse">
+```{r, eval = F}
+load("~/Desktop/SDVI/SVI/2022/SVI_2022_CBG.RData") 
+load("~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_CBG.RData") 
+load("~/Desktop/SDVI/NSS7/2022/NSS7_2022_CBG.RData") 
+load("~/Desktop/SDVI/FDep/2022/FDep_2022_CBG.RData")
+load("~/Desktop/SDVI/ADI/Analysis/ReADI_2022/ReADI_CBG_2022.RData")
+load("~/Desktop/SDVI/ADI/Analysis/NA_ADI_2022/NA_ADI_CBG_2022.RData")
+
+FDep_2022_CBG <- FDep_2022_CBG[, c("GEOID", "Block_Group", "Tract", "County", "State", "FDep")]
+FDep_2022_CBG$FDep <- 100-FDep_2022_CBG$FDep
+SDI_2022_CBG <- SDI_2022_CBG[, c("GEOID", "SDI_2022")]
+colnames(SDI_2022_CBG) <- c("GEOID", "SDI")
+ReADI_CBG_2022 <- ReADI_CBG_2022[, c("GEOID", "ReADI_CBG_NR")]
+colnames(ReADI_CBG_2022) <- c("GEOID", "ReADI")
+SVI_2022_CBG <- SVI_2022_CBG[, c("GEOID_CBG", "RPL_THEMES")]
+colnames(SVI_2022_CBG) <- c("GEOID", "SVI")
+SVI_2022_CBG$SVI <- round(percent_rank(SVI_2022_CBG$SVI)*100, 0)
+NA_ADI_CBG_2022 <- NA_ADI_CBG_2022[, c("GEOID", "ADI_NATRANK")]
+colnames(NA_ADI_CBG_2022) <- c("GEOID", "NA_ADI")
+NSS7_2022_CBG <- NSS7_2022_CBG[, c("GEOID", "NSS7")]
+
+SDVI_CBG_2022 <- plyr::join(FDep_2022_CBG, SDI_2022_CBG)
+SDVI_CBG_2022 <- plyr::join(SDVI_CBG_2022, ReADI_CBG_2022)
+SDVI_CBG_2022 <- plyr::join(SDVI_CBG_2022, SVI_2022_CBG)
+SDVI_CBG_2022 <- plyr::join(SDVI_CBG_2022, NA_ADI_CBG_2022)
+SDVI_CBG_2022 <- plyr::join(SDVI_CBG_2022, NSS7_2022_CBG)
+SDVI_CBG_2022$NA_ADI <- as.numeric(SDVI_CBG_2022$NA_ADI)
+SDVI_CBG_2022$SDI <- as.numeric(SDVI_CBG_2022$SDI)
+
+save(SDVI_CBG_2022, file = "SDVI_CBG_2022.RData")
+write.csv(SDVI_CBG_2022, file = "SDVI_CBG_2022.csv")
+```
+  </div>
+</div>
+
+<br><br>
+
+> CT
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1799">Show Code</button>
+  <div id="code1799" class="collapse">
+```{r, eval = F}
+load("~/Desktop/SDVI/SVI/2022/SVI_2022_CT.RData") 
+load("~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_CT.RData") 
+load("~/Desktop/SDVI/NSS7/2022/NSS7_2022_CT.RData") 
+load("~/Desktop/SDVI/FDep/2022/FDep_2022_CT.RData")
+load("~/Desktop/SDVI/ADI/Analysis/ReADI_2022/ReADI_CT_2022.RData")
+load("~/Desktop/SDVI/ADI/Analysis/NA_ADI_2022/NA_ADI_CT_2022.RData")
+
+FDep_2022_CT <- FDep_2022_CT[, c("GEOID", "Tract", "County", "State", "FDep")]
+FDep_2022_CT$FDep <- 100-FDep_2022_CT$FDep
+SDI_2022_CT <- SDI_2022_CT[, c("GEOID", "SDI_2022")]
+colnames(SDI_2022_CT) <- c("GEOID", "SDI")
+ReADI_CT_2022 <- ReADI_CT_2022[, c("GEOID", "ReADI_CT_NR")]
+colnames(ReADI_CT_2022) <- c("GEOID", "ReADI")
+SVI_2022_CT <- SVI_2022_CT[, c("GEOID", "RPL_THEMES")]
+colnames(SVI_2022_CT) <- c("GEOID", "SVI")
+SVI_2022_CT$SVI <- round(percent_rank(SVI_2022_CT$SVI)*100, 0)
+NA_ADI_CT_2022 <- NA_ADI_CT_2022[, c("GEOID", "ADI")]
+colnames(NA_ADI_CT_2022) <- c("GEOID", "NA_ADI")
+NSS7_2022_CT <- NSS7_2022_CT[, c("GEOID", "NSS7")]
+
+SDVI_CT_2022 <- plyr::join(FDep_2022_CT, SDI_2022_CT)
+SDVI_CT_2022 <- plyr::join(SDVI_CT_2022, ReADI_CT_2022)
+SDVI_CT_2022 <- plyr::join(SDVI_CT_2022, SVI_2022_CT)
+SDVI_CT_2022 <- plyr::join(SDVI_CT_2022, NA_ADI_CT_2022)
+SDVI_CT_2022 <- plyr::join(SDVI_CT_2022, NSS7_2022_CT)
+SDVI_CT_2022$NA_ADI <- as.numeric(SDVI_CT_2022$NA_ADI)
+SDVI_CT_2022$SDI <- as.numeric(SDVI_CT_2022$SDI)
+
+save(SDVI_CT_2022, file = "SDVI_CT_2022.RData")
+write.csv(SDVI_CT_2022, file = "SDVI_CT_2022.csv")
+```
+  </div>
+</div>
+
+<br><br>
+
+> County
+
+<div style="margin:16px 0">
+  <button type="button" class="btn btn-dark" control-id="ControlID-54" data-bs-toggle="collapse" data-bs-target="#code1841">Show Code</button>
+  <div id="code1841" class="collapse">
+```{r, eval = F}
+load("~/Desktop/SDVI/SVI/2022/SVI_2022_C.RData") 
+load("~/Desktop/SDVI/SDI/SDI 2022/SDI_2022_C.RData") 
+load("~/Desktop/SDVI/NSS7/2022/NSS7_2022_C.RData") 
+load("~/Desktop/SDVI/FDep/2022/FDep_2022_C.RData")
+load("~/Desktop/SDVI/ADI/Analysis/ReADI_2022/ReADI_C_2022.RData")
+load("~/Desktop/SDVI/ADI/Analysis/NA_ADI_2022/NA_ADI_C_2022.RData")
+
+FDep_2022_C <- FDep_2022_C[, c("GEOID", "County", "State", "FDep")]
+SDI_2022_C <- SDI_2022_C[, c("GEOID", "SDI_2022")]
+colnames(SDI_2022_C) <- c("GEOID", "SDI")
+ReADI_C_2022 <- ReADI_C_2022[, c("GEOID", "ReADI_C_NR")]
+colnames(ReADI_C_2022) <- c("GEOID", "ReADI")
+SVI_2022_C$GEOID <- ifelse(nchar(SVI_2022_C$FIPS) == 4, paste(0, SVI_2022_C$FIPS, sep = ""), SVI_2022_C$FIPS)
+SVI_2022_C <- SVI_2022_C[, c("GEOID", "RPL_THEMES")]
+colnames(SVI_2022_C) <- c("GEOID", "SVI")
+SVI_2022_C$SVI <- round(percent_rank(SVI_2022_C$SVI)*100, 0)
+colnames(NA_ADI_C_2022) <- c("GEOID", "NA_ADI")
+NSS7_2022_C <- NSS7_2022_C[, c("GEOID", "NSS7")]
+
+SDVI_C_2022 <- plyr::join(FDep_2022_C, SDI_2022_C)
+SDVI_C_2022 <- plyr::join(SDVI_C_2022, ReADI_C_2022)
+SDVI_C_2022 <- plyr::join(SDVI_C_2022, SVI_2022_C)
+SDVI_C_2022 <- plyr::join(SDVI_C_2022, NA_ADI_C_2022)
+SDVI_C_2022 <- plyr::join(SDVI_C_2022, NSS7_2022_C)
+SDVI_C_2022$NA_ADI <- as.numeric(SDVI_C_2022$NA_ADI)
+SDVI_C_2022$SDI <- as.numeric(SDVI_C_2022$SDI)
+save(SDVI_C_2022, file = "SDVI_C_2022.RData")
+write.csv(SDVI_C_2022, file = "SDVI_C_2022.csv")
+```
+
+<br><br>
+
+# References
+***
+
+Centers for Disease Control and Prevention/ Agency for Toxic Substances and Disease Registry/ Geospatial Research, Analysis, and Services Program. CDC/ATSDR Social Vulnerability Index 2022 Database US. https://www.atsdr.cdc.gov/placeandhealth/svi/data_documentation_download.html Accessed on 01 Dec 2024.
+
+Diez Roux AV, Kiefe CI, Jacobs DR, Haan M, Jackson SA, Nieto FJ, Paton CC, Schulz. Area Characteristics and Individual-Level Socioeconomic Position Indicators in Three Population-Based Epidemiological Studies. Annals of Epidemiology, 2001,11(6):395-405
+
+Kind AJH, Jencks S, Brock J, et al. Neighborhood socioeconomic disadvantage and 30-day rehospitalization: A retrospective cohort study. Ann Intern Med. 2014;161(11). doi:10.7326/M13-2946
+
+Singh GK. Area Deprivation and Widening Inequalities in US Mortality, 1969-1998. Am J Public Health. 2003;93(7). doi:10.2105/AJPH.93.7.1137
+
+University of Wisconsin School of Medicine and Public Health. 2022 Area Deprivation Index v4.0.1. Downloaded from https://www.neighborhoodatlas.medicine.wisc.edu/ 01 December 2024.

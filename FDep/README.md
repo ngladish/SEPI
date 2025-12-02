@@ -1,2 +1,0 @@
-# SEPI
- Socioeconomic Position Indices
